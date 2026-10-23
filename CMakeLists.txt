@@ -24,6 +24,10 @@ cmake_minimum_required(VERSION 3.24)
 
 project(AgoraData LANGUAGES C OBJC)
 
+# `$ORIGIN` for the same reason every other component states it: a runpath is not inherited by a
+# dependency's own dependencies, so each library has to name the directory its neighbours are in.
+set(CMAKE_INSTALL_RPATH "\$ORIGIN")
+
 # THE OBJECTIVE-C COMPILER MUST BE CLANG, AND SAYING SO HERE IS WORTH THREE LINES. Configured without a
 # compiler argument, CMake picks the system C compiler, which for `-x objective-c` tries to exec `cc1obj` --
 # a binary GCC has not shipped for years. The failure is `cannot execute 'cc1obj'` three levels into a CMake
