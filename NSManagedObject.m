@@ -35,6 +35,8 @@
 #import <Foundation/NSError.h>
 #import <Foundation/NSException.h>
 #import <Foundation/NSKeyValueObserving.h>
+#import <Foundation/NSUndoManager.h>
+#import <CoreData/NSManagedObjectContext.h>
 
 /* One counter for temporary IDs, as Apple's own temporary keys are small integers. Locking is W3's problem: an
  * object cannot be created without a context, and a context is a lock. */
@@ -124,6 +126,15 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 
 - (void)cd_setFault:(BOOL)flag { _fault = flag; }
 
+- (void)cd_setObjectID:(NSManagedObjectID *)objectID
+{
+	[objectID retain];
+	[_objectID release];
+	_objectID = objectID;
+}
+
+- (NSDictionary *)cd_committedValues { return _committed; }
+
 - (void)cd_turnIntoFault
 {
 	if (_fault) {
@@ -158,7 +169,11 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 - (void)didAccessValueForKey:(NSString *)key { (void)key; }
 
 - (void)willChangeValueForKey:(NSString *)key { [super willChangeValueForKey:key]; }
-- (void)didChangeValueForKey:(NSString *)key { [super didChangeValueForKey:key]; }
+- (void)didChangeValueForKey:(NSString *)key
+{
+	[super didChangeValueForKey:key];
+	[_context cd_objectDidChange:self];
+}
 
 - (void)willChangeValueForKey:(NSString *)inKey
              withSetMutation:(NSKeyValueSetMutationKind)inMutationKind
@@ -238,6 +253,21 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 		[super setValue:value forKey:key];
 		return;
 	}
+	/* UNDO IS REGISTERED BEFORE THE CHANGE, capturing the value being replaced: that is the only moment the old
+	 * value is still there. IT IS REGISTERED DURING AN UNDO TOO — NSUndoManager routes a registration made while
+	 * it is undoing into the REDO stack, which is the whole mechanism. Suppressing it there was the first attempt
+	 * and it made -redo a no-op: there was nothing on the stack to redo. The context's `_undoing` flag exists to
+	 * keep the change-tracking quiet, not to stop this. */
+	{
+		id previous = [self primitiveValueForKey:key];
+		NSUndoManager *undo = [_context undoManager];
+
+		if (undo != nil) {
+			[undo registerUndoWithTarget:self handler:^(id target) {
+				[target setValue:previous forKey:key];
+			}];
+		}
+	}
 	[self willChangeValueForKey:key];
 	[self setPrimitiveValue:value forKey:key];
 	[self didChangeValueForKey:key];
@@ -289,16 +319,16 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 
 - (void)cd_applyCommittedValues:(NSDictionary *)values
 {
+	NSMutableDictionary *fresh = [[NSMutableDictionary alloc] initWithDictionary:values];
+	NSMutableDictionary *previous = _committed;
 	NSUInteger i;
 
-	[_committed removeAllObjects];
-	{
-		NSArray *keys = [values allKeys];
-		for (i = 0; i < [keys count]; i++) {
-			NSString *key = [keys objectAtIndex:i];
-			[_committed setObject:[values objectForKey:key] forKey:key];
-		}
-	}
+	/* THE INPUT MAY BE `_committed` ITSELF — `-rollback` hands it back — so the new snapshot is built FIRST and
+	 * swapped in. Clearing in place read from the dictionary it was emptying, which silently produced an empty
+	 * snapshot and a rollback that forgot everything. */
+	_committed = fresh;
+	[previous release];
+	(void)i;
 	/* A SAVE CLEARS THE DIFF AFTER ADOPTING IT: what was changed is now what the store holds. */
 	[_changed release];
 	_changed = nil;

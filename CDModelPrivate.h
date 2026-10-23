@@ -63,6 +63,26 @@ NSString *CDHexOfData(NSData *data);
 /* THE DOORS W3 AND W4 DRIVE AN OBJECT WITH. They are on the object rather than on the context because the
  * context is the thing being written next, and a door only a context may use is still a door the object owns. */
 @class NSManagedObject;
+@class NSManagedObjectContext;
+@class NSFetchRequest;
+@class NSError;
+@class NSArray;
+
+/* THE STORE'S DOORS, AS A PROTOCOL RATHER THAN A TYPE. `NSPersistentStoreCoordinator` does not exist yet (W4), so
+ * the context cannot name it — but it must still be able to ASK whether the object it was given answers. A
+ * protocol with @optional members says exactly that: the messages are type-checked, and the guard is still
+ * `respondsToSelector:`, so W3 runs with no coordinator at all and W4 fills in the other side. */
+@protocol CDStoreDoors <NSObject>
+@optional
+- (BOOL)cd_saveContext:(NSManagedObjectContext *)context error:(NSError **)error;
+- (BOOL)cd_obtainPermanentIDsForObjects:(NSArray *)objects
+                             inContext:(NSManagedObjectContext *)context
+                                 error:(NSError **)error;
+- (id)cd_executeFetchRequest:(NSFetchRequest *)request
+                   inContext:(NSManagedObjectContext *)context
+                       error:(NSError **)error;
+- (void)cd_faultObject:(NSManagedObject *)object inContext:(NSManagedObjectContext *)context;
+@end
 
 @interface NSManagedObject (CDPrivate)
 - (BOOL)cd_hasChanges;
@@ -72,6 +92,8 @@ NSString *CDHexOfData(NSData *data);
 - (void)cd_setManagedObjectContext:(id)context;
 - (void)cd_applyCommittedValues:(NSDictionary *)values;
 - (void)cd_turnIntoFault;
+- (void)cd_setObjectID:(NSManagedObjectID *)objectID;
+- (NSDictionary *)cd_committedValues;
 @end
 
 #endif /* COREDATA_CDMODELPRIVATE_H */

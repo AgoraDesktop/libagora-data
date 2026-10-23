@@ -37,4 +37,7 @@
 #import <CoreData/NSManagedObjectID.h>
 #import <CoreData/NSManagedObject.h>
 
+/* W3 — the unit of work. */
+#import <CoreData/NSManagedObjectContext.h>
+
 #endif /* COREDATA_COREDATA_H */

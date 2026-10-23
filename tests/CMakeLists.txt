@@ -64,3 +64,11 @@ if(Python3_Interpreter_FOUND)
 else()
   message(STATUS "libagora-data: no Python3 interpreter, so the API census gate is not registered")
 endif()
+
+# W3's gate: the six sets, the save pipeline, undo/rollback, delete propagation, merge, and D2's thread refusal —
+# which is measured by actually making the call from another thread.
+add_executable(context context.m)
+target_link_libraries(context PRIVATE Data CoreFoundation::CoreFoundation objc pthread)
+
+add_test(NAME context COMMAND context)
+set_tests_properties(context PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
