@@ -159,6 +159,11 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	return NO;
 }
 
++ (NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url error:(NSError **)error
+{
+	return [self metadataForPersistentStoreOfType:nil URL:url error:error];
+}
+
 + (NSDictionary *)elementsDerivedFromExternalRecordURL:(NSURL *)fileURL
 {
 	(void)fileURL;

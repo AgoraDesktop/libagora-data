@@ -16,6 +16,8 @@
 #                  NSAtomicStoreCacheNode (6), NSPersistentStoreCoordinator (22).
 # W5 (2026-10-23): 16 of 21 classes, 272 of 272. +NSFetchRequest (30), NSFetchRequestExpression (4).
 #                  classes-missing 5, which are W6's migration classes.
+#                  The first W5 pin said 271: the deprecated +metadataForPersistentStoreWithURL:error: was
+#                  missing from NSPersistentStoreCoordinator. api-ledger missing named it, and it was added.
 
 classes-missing 5
 classes-offered 21
@@ -26,7 +28,7 @@ functions-defined-not-declared 0
 functions-missing 0
 functions-offered 0
 functions-present 0
-methods-declared 296
+methods-declared 297
 methods-declared-not-implemented 0
 protocols-missing 0
 protocols-offered 0
@@ -44,9 +46,9 @@ sel:NSManagedObjectContext 39
 sel:NSManagedObjectID 4
 sel:NSManagedObjectModel 22
 sel:NSPersistentStore 19
-sel:NSPersistentStoreCoordinator 21
+sel:NSPersistentStoreCoordinator 22
 sel:NSPropertyDescription 23
 sel:NSRelationshipDescription 12
-selectors-missing 1
+selectors-missing 0
 selectors-offered 272
-selectors-present 271
+selectors-present 272

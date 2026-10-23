@@ -89,6 +89,13 @@ COREDATA_EXTERN NSString *const NSExternalRecordExtensionOption;
                         error:(NSError **)error;
 + (NSDictionary *)elementsDerivedFromExternalRecordURL:(NSURL *)fileURL;
 
+/* THE DEPRECATED COPY OF THE METADATA DOOR, WHICH THIS HEADER OMITTED AND THE CENSUS CAUGHT. 10.6 declares it on
+ * NSPersistentStore AND here — the same signature in two classes, because the store existed before the coordinator
+ * did. A client written before 10.5 calls this one, so leaving it out is one missing selector, not a tidy-up. */
++ (NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url
+                                              error:(NSError **)error
+    COREDATA_DEPRECATED;
+
 - (id)initWithManagedObjectModel:(NSManagedObjectModel *)model;
 - (NSManagedObjectModel *)managedObjectModel;
 
