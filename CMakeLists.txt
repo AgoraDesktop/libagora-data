@@ -56,6 +56,9 @@ set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SQLITE3 REQUIRED IMPORTED_TARGET sqlite3)   # the system SQLite, as ICU/OpenSSL are system
+
 find_package(libobjc CONFIG REQUIRED)          # -> objc
 find_package(Foundation CONFIG REQUIRED)       # Agora's Foundation (libagora-base)
 
@@ -90,7 +93,7 @@ target_include_directories(Data
 # `NSPredicate`, `NSExpression`, `NSError`), so a consumer of this library reaches Foundation itself.
 target_link_libraries(Data
     PUBLIC Foundation::Foundation
-    PRIVATE objc)
+    PRIVATE objc PkgConfig::SQLITE3)
 
 # THE HEADERS ARE INSTALLED BY NAME, NOT BY COPYING THE SOURCE TREE. `install(DIRECTORY .)` was the first attempt
 # and it was measured: it recreated `api/`, `cmake/` and `tests/` as EMPTY directories inside

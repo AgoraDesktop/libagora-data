@@ -59,8 +59,9 @@ int main(void)
 	{
 		NSDictionary *types = [NSPersistentStoreCoordinator registeredStoreTypes];
 		CHECK([types objectForKey:NSInMemoryStoreType] != nil, "the in-memory store is registered");
-		CHECK([types objectForKey:NSSQLiteStoreType] == nil, "SQLite is not registered yet");
-		CHECK([coordinator addPersistentStoreWithType:NSSQLiteStoreType
+		/* W7 REGISTERED THE OTHER THREE, so the invalid-type test needs a type that names nothing at all. */
+		CHECK([types objectForKey:NSSQLiteStoreType] != nil, "SQLite is registered (W7)");
+		CHECK([coordinator addPersistentStoreWithType:@"NoSuchStoreType"
 		                               configuration:nil URL:nil options:nil error:&error] == nil,
 		      "adding an unregistered store type returns nil");
 		CHECK([error code] == NSPersistentStoreInvalidTypeError, "with the invalid-type code");

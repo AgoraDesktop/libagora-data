@@ -9,18 +9,12 @@
 # a selector is answered needs a superclass chain rather than a regex; and the built library is an input, because
 # a declaration is not a door.
 #
-# W1 (2026-10-23): 7 of 21 classes, 99 of 99 offered selectors.
-# W2 (2026-10-23): 9 of 21 classes, 140 of 140. +NSManagedObject (37), NSManagedObjectID (4).
-# W3 (2026-10-23): 10 of 21 classes, 179 of 179. +NSManagedObjectContext (39).
-# W4 (2026-10-23): 14 of 21 classes, 238 of 238. +NSPersistentStore (19), NSAtomicStore (12),
-#                  NSAtomicStoreCacheNode (6), NSPersistentStoreCoordinator (22).
-# W5 (2026-10-23): 16 of 21 classes, 272 of 272. +NSFetchRequest (30), NSFetchRequestExpression (4).
-#                  The first W5 pin said 271: a deprecated selector was missing and api-ledger named it.
-# W6 (2026-10-23): 21 of 21 CLASSES, 331 of 331 SELECTORS. +NSMappingModel (6), NSEntityMapping (22),
-#                  NSPropertyMapping (6), NSMigrationManager (18), NSEntityMigrationPolicy (7).
-#                  classes-missing 0, selectors-missing 0, methods-declared-not-implemented 0.
-#                  THE DECLARED SURFACE IS COMPLETE. What is NOT done is the store types themselves:
-#                  SQLite, XML and binary refuse by name (W7), and so does every option that belongs to them.
+# W1: 7 of 21 classes, 99 of 99. W2: 9 of 21, 140 of 140. W3: 10 of 21, 179 of 179. W4: 14 of 21, 238 of 238.
+# W5: 16 of 21, 272 of 272 (the first pin said 271; api-ledger missing named the deprecated selector).
+# W6: 21 of 21 classes, 331 of 331 selectors — the declared surface complete.
+# W7: still 21 of 21 and 331 of 331, because the three serialising stores are PRIVATE classes: the public
+#     surface is the store TYPES, not their implementations. methods-declared rises with each private class,
+#     which is what makes this a measurement of the tree rather than of the manifest alone.
 
 classes-missing 0
 classes-offered 21
@@ -31,7 +25,7 @@ functions-defined-not-declared 0
 functions-missing 0
 functions-offered 0
 functions-present 0
-methods-declared 356
+methods-declared 361
 methods-declared-not-implemented 0
 protocols-missing 0
 protocols-offered 0

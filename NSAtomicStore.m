@@ -17,6 +17,7 @@
 #import <CoreData/NSManagedObjectID.h>
 #import <CoreData/NSEntityDescription.h>
 #import <CoreData/NSPropertyDescription.h>
+#import <CoreData/NSRelationshipDescription.h>
 #import <Foundation/NSString.h>
 #import <Foundation/NSArray.h>
 #import <Foundation/NSDictionary.h>
@@ -66,8 +67,14 @@
 
 	for (i = 0; i < [properties count]; i++) {
 		NSString *key = [[properties objectAtIndex:i] name];
-		/* TRANSIENT PROPERTIES ARE NOT STORED, which is the one flag a store must honour or the model is a lie. */
-		if ([[properties objectAtIndex:i] isTransient]) {
+		/* TRANSIENT PROPERTIES ARE NOT STORED, which is the one flag a store must honour or the model is a lie.
+		 *
+		 * RELATIONSHIPS ARE NOT STORED EITHER, YET: a relationship's value is another managed OBJECT, and a node is
+		 * scalar values. Persisting it means writing the related row's key and resolving that key back into an
+		 * object on load — the storage half is trivial, the resolution half needs the fault path to translate
+		 * keys into objects, and that is the next slice rather than something to fake with a wrong type here. */
+		if ([[properties objectAtIndex:i] isTransient] ||
+		    [[properties objectAtIndex:i] isKindOfClass:[NSRelationshipDescription class]]) {
 			continue;
 		}
 		[node setValue:[managedObject primitiveValueForKey:key] forKey:key];

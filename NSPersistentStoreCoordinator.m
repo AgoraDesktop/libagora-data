@@ -30,6 +30,7 @@
 #import <CoreData/CoreDataErrors.h>
 #import <CoreData/CDModelPrivate.h>
 #import <CoreData/CDFetchEngine.h>
+#import <CoreData/CDSerialisingStores.h>
 #import <CoreData/NSFetchRequest.h>
 #import <Foundation/NSString.h>
 #import <Foundation/NSArray.h>
@@ -124,6 +125,9 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	if (self == [NSPersistentStoreCoordinator class]) {
 		CDStoreRegistry = [[NSMutableDictionary alloc] init];
 		[self registerStoreClass:[CDInMemoryStore class] forStoreType:NSInMemoryStoreType];
+		[self registerStoreClass:[CDBinaryStore class] forStoreType:NSBinaryStoreType];
+		[self registerStoreClass:[CDXMLStore class] forStoreType:NSXMLStoreType];
+		[self registerStoreClass:[CDSQLiteStore class] forStoreType:NSSQLiteStoreType];
 	}
 }
 
@@ -144,9 +148,17 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
                                                URL:(NSURL *)url
                                              error:(NSError **)error
 {
-	/* A STORE THAT IS NOT ON DISK HAS NO METADATA TO READ. W7 gives this a file to open; until then an in-memory
-	 * store and a fileless URL answer nil with no error, which is the documented "nothing there yet". */
-	(void)storeType; (void)url; (void)error;
+	Class storeClass = [CDStoreRegistry objectForKey:storeType];
+
+	/* THE METADATA IS READ WITHOUT OPENING A STACK — that is the door's whole purpose, and it is why the store
+	 * classes answer it as a CLASS method. An in-memory store has no file, and a file with no metadata is nil with
+	 * no error, which is the documented "nothing there yet". */
+	if (storeClass == Nil || url == nil) {
+		return nil;
+	}
+	if ([storeClass respondsToSelector:@selector(cd_metadataAtURL:error:)]) {
+		return [storeClass cd_metadataAtURL:url error:error];
+	}
 	return nil;
 }
 
@@ -155,7 +167,15 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
                           URL:(NSURL *)url
                         error:(NSError **)error
 {
-	(void)metadata; (void)storeType; (void)url; (void)error;
+	(void)metadata; (void)storeType; (void)url;
+	/* REFUSED BY NAME: the metadata carries the model's version hashes, so letting a caller overwrite it without a
+	 * model would let them forge compatibility. A store writes its own metadata on save, from the model it was
+	 * opened against. */
+	if (error != NULL) {
+		*error = CDCoordinatorError(NSPersistentStoreOperationError,
+		                            @"metadata is written by the store from the model it was opened against; "
+		                            @"overwriting it without a model would forge compatibility");
+	}
 	return NO;
 }
 
@@ -244,9 +264,7 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	if (storeClass == Nil) {
 		/* EACH MISSING TYPE NAMES ITS WAVE, because a caller that asked for SQLite and got "invalid type" would
 		 * have no way to tell a typo from a plan. */
-		NSString *where = [storeType isEqual:NSSQLiteStoreType] ? @"W7"
-		                 : [storeType isEqual:NSXMLStoreType] ? @"W7"
-		                 : [storeType isEqual:NSBinaryStoreType] ? @"W7" : @"no wave yet";
+		NSString *where = @"this build registers no class for it";
 		if (error != NULL) {
 			*error = CDCoordinatorError(NSPersistentStoreInvalidTypeError,
 			    [NSString stringWithFormat:@"the store type `%@` is not registered; %@ (COREDATA-PLAN.md)",
@@ -260,6 +278,14 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	                                                       options:options];
 	[store cd_setType:storeType];
 	if (![store loadMetadata:error]) {
+		[store release];
+		return nil;
+	}
+	/* AND THE STORE'S CONTENTS ARE LOADED AFTER ITS METADATA, which is the order `NSAtomicStore` documents: the
+	 * metadata decides whether the file may be read at all, and only then are its nodes worth building. This call
+	 * was missing until W7's suite read back zero rows from a store that had written them — the write path worked,
+	 * and nothing ever asked the file anything. */
+	if ([store isKindOfClass:[NSAtomicStore class]] && ![store load:error]) {
 		[store release];
 		return nil;
 	}

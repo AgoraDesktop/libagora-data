@@ -94,3 +94,10 @@ target_link_libraries(migration PRIVATE Data CoreFoundation::CoreFoundation objc
 
 add_test(NAME migration COMMAND migration)
 set_tests_properties(migration PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# W7's gate: one fixture through three store types, then the incompatible-model refusal.
+add_executable(serialisation serialisation.m)
+target_link_libraries(serialisation PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME serialisation COMMAND serialisation)
+set_tests_properties(serialisation PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
