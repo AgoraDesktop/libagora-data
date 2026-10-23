@@ -20,3 +20,12 @@ target_link_libraries(smoke PRIVATE Data CoreFoundation::CoreFoundation objc)
 
 add_test(NAME smoke COMMAND smoke)
 set_tests_properties(smoke PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# W1's gate: the seven model classes, and the archive round trip that is the only measurable form of "the model
+# loads". A digest that changed between builds would invalidate every store on disk, so the version hash is
+# asked for determinism and sensitivity here rather than trusted.
+add_executable(model model.m)
+target_link_libraries(model PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME model COMMAND model)
+set_tests_properties(model PROPERTIES ENVIRONMENT "${_agora_data_test_env}")

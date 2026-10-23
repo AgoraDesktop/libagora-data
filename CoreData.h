@@ -23,4 +23,14 @@
 #import <CoreData/CoreDataDefines.h>
 #import <CoreData/CoreDataErrors.h>
 
+/* W1 — the model. Each header arrives in the same commit that makes its class answer, so the umbrella never
+ * names a class that does not exist. */
+#import <CoreData/NSPropertyDescription.h>
+#import <CoreData/NSAttributeDescription.h>
+#import <CoreData/NSRelationshipDescription.h>
+#import <CoreData/NSFetchedPropertyDescription.h>
+#import <CoreData/NSExpressionDescription.h>
+#import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSManagedObjectModel.h>
+
 #endif /* COREDATA_COREDATA_H */
