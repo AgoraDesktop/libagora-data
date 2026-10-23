@@ -174,19 +174,23 @@ int main(void)
 	Exercise(NSXMLStoreType, @"/tmp/libagora-data-test.xmlstore");
 	Exercise(NSSQLiteStoreType, @"/tmp/libagora-data-test.sqlite");
 
-	/* the schema is the one the document describes, not whatever the code emitted */
-	if (system("sqlite3 /tmp/libagora-data-test.sqlite '.tables' > /tmp/agora-tables.txt 2>/dev/null") == 0) {
-		FILE *tables = fopen("/tmp/agora-tables.txt", "r");
-		if (tables != NULL) {
-			char line[512];
-			BOOL sawValue = NO;
-
-			while (fgets(line, sizeof line, tables) != NULL) {
-				if (strstr(line, "agora_value") != NULL) { sawValue = YES; }
-			}
-			fclose(tables);
-			CHECK(sawValue == YES, "the SQLite file has the schema's table names, readable by sqlite3");
-		}
+	/* THE SCHEMA IS THE ONE THE DOCUMENT DESCRIBES, CHECKED BY A STANDARD SQLITE CLIENT — which is D1-b's whole
+	 * promise: a developer can open the file and read the data.
+	 *
+	 * THE FIRST VERSION OF THIS CHECK USED THE `sqlite3` BINARY, AND THIS MACHINE DOES NOT HAVE ONE, so the check
+	 * silently did nothing. Python's `sqlite3` module is the same client library through a different door, and when
+	 * neither is available the check SKIPS LOUDLY rather than passing by accident. */
+	if (system("command -v python3 > /dev/null 2>&1") == 0) {
+		int status = system(
+		    "python3 -c \"import sqlite3,sys;"
+		    "db=sqlite3.connect('/tmp/libagora-data-test.sqlite');"
+		    "names=[r[0] for r in db.execute(\\\"SELECT name FROM sqlite_master WHERE type='table'\\\")];"
+		    "rows=list(db.execute('SELECT COUNT(*) FROM agora_value'));"
+		    "sys.exit(0 if 'agora_value' in names and 'agora_object' in names and rows[0][0]==9 else 1)\" "
+		    "> /dev/null 2>&1");
+		CHECK(status == 0, "a standard SQLite client reads the schema's tables and all nine values");
+	} else {
+		fprintf(stderr, "  (no python3: the SQLite readability check was SKIPPED, not passed)\n");
 	}
 
 	printf("serialisation: %d checks, %d failure(s)\n", checks, failures);
