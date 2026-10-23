@@ -24,6 +24,7 @@
 #import <CoreData/NSPropertyDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSManagedObject.h>
 
 /* SHA-256 of the UTF-8 bytes of `canonical`, as 32 bytes. */
 NSData *CDVersionHashOfCanonicalString(NSString *canonical);
@@ -57,6 +58,20 @@ NSString *CDHexOfData(NSData *data);
 - (void)cd_setEntity:(NSEntityDescription *)entity forProperty:(NSPropertyDescription *)property;
 - (void)cd_setManagedObjectModel:(id)model;
 - (void)cd_setSuperentity:(NSEntityDescription *)entity;
+@end
+
+/* THE DOORS W3 AND W4 DRIVE AN OBJECT WITH. They are on the object rather than on the context because the
+ * context is the thing being written next, and a door only a context may use is still a door the object owns. */
+@class NSManagedObject;
+
+@interface NSManagedObject (CDPrivate)
+- (BOOL)cd_hasChanges;
+- (void)cd_setFault:(BOOL)flag;
+- (void)cd_setInserted:(BOOL)flag;
+- (void)cd_setDeleted:(BOOL)flag;
+- (void)cd_setManagedObjectContext:(id)context;
+- (void)cd_applyCommittedValues:(NSDictionary *)values;
+- (void)cd_turnIntoFault;
 @end
 
 #endif /* COREDATA_CDMODELPRIVATE_H */

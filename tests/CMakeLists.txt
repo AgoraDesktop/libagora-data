@@ -29,3 +29,38 @@ target_link_libraries(model PRIVATE Data CoreFoundation::CoreFoundation objc)
 
 add_test(NAME model COMMAND model)
 set_tests_properties(model PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# W2's gate: the value store, the diff, the fault state and validation.
+add_executable(object object.m)
+target_link_libraries(object PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME object COMMAND object)
+set_tests_properties(object PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# THE MEASUREMENT, AS A GATE RATHER THAN A REPORT. `api-ledger census` decides whether a selector is answered by
+# walking the superclass chain and the `.m` bodies, and it asks the built library which C functions exist — so a
+# declaration cannot fake a door. The pin lives in `coredata-census.txt`; moving a number is a deliberate act in the
+# same commit that says which wave moved it.
+#
+# THE LEDGER IS A SIBLING COMPONENT'S, AND THAT IS A PRECEDENT RATHER THAN A SHORTCUT: libagora-base already points
+# at `../libagora-drawing` for Core Graphics' headers through a CACHE PATH with the same shape. A path variable
+# means a checkout where the sibling lives elsewhere can still run the suite.
+set(AGORA_LEDGER "${CMAKE_CURRENT_SOURCE_DIR}/../../libagora-app/tools/api-ledger"
+    CACHE FILEPATH "api-ledger, from the libagora-app component")
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  # REGISTERED UNCONDITIONALLY WHEN THE INTERPRETER EXISTS, and it fails loudly at run time if the ledger is
+  # missing rather than quietly unregistering: a gate that disappears is the drift the census exists to stop.
+  add_test(NAME coredata-api-census
+    COMMAND "${CMAKE_COMMAND}"
+            "-DPYTHON=${Python3_EXECUTABLE}"
+            "-DLEDGER=${AGORA_LEDGER}"
+            "-DMANIFEST=${CMAKE_CURRENT_SOURCE_DIR}/../api/10.6/coredata-manifest.txt"
+            "-DLIBRARY=$<TARGET_FILE:Data>"
+            "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/.."
+            "-DCENSUS=${CMAKE_CURRENT_SOURCE_DIR}/coredata-census.txt"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/api_census.cmake")
+else()
+  message(STATUS "libagora-data: no Python3 interpreter, so the API census gate is not registered")
+endif()

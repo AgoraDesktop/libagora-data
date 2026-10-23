@@ -33,4 +33,8 @@
 #import <CoreData/NSEntityDescription.h>
 #import <CoreData/NSManagedObjectModel.h>
 
+/* W2 — the object and its identity. */
+#import <CoreData/NSManagedObjectID.h>
+#import <CoreData/NSManagedObject.h>
+
 #endif /* COREDATA_COREDATA_H */

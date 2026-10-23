@@ -1,0 +1,41 @@
+# THE CORE DATA API CENSUS — how much of the 10.6 Core Data this library answers, pinned.
+#
+# Copyright © 2026 Kyle J. Cardoza.
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Two directions, as in libagora-app's three: a metric that moves is a failure with a diagnostic, and moving the
+# number is a deliberate act in the same commit that says why. The manifest is `api/10.6/coredata-manifest.txt`
+# (names and relationships only — Apple's SDK is not redistributable); the parser is `api-ledger`, because whether
+# a selector is answered needs a superclass chain rather than a regex; and the built library is an input, because
+# a declaration is not a door.
+#
+# W1 (2026-10-23): 7 of 21 classes, 99 of 99 offered selectors, nothing declared but unimplemented.
+# W2 (2026-10-23): 9 of 21 classes, 140 of 140 offered selectors. +NSManagedObject (37) and
+#                  NSManagedObjectID (4). classes-missing 12, selectors-offered 140.
+
+classes-missing 12
+classes-offered 21
+classes-present 9
+functions-declared 0
+functions-declared-not-defined 0
+functions-defined-not-declared 0
+functions-missing 0
+functions-offered 0
+functions-present 0
+methods-declared 155
+methods-declared-not-implemented 0
+protocols-missing 0
+protocols-offered 0
+protocols-present 0
+sel:NSAttributeDescription 9
+sel:NSEntityDescription 27
+sel:NSExpressionDescription 4
+sel:NSFetchedPropertyDescription 2
+sel:NSManagedObject 37
+sel:NSManagedObjectID 4
+sel:NSManagedObjectModel 22
+sel:NSPropertyDescription 23
+sel:NSRelationshipDescription 12
+selectors-missing 0
+selectors-offered 140
+selectors-present 140
