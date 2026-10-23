@@ -15,20 +15,23 @@
 # W4 (2026-10-23): 14 of 21 classes, 238 of 238. +NSPersistentStore (19), NSAtomicStore (12),
 #                  NSAtomicStoreCacheNode (6), NSPersistentStoreCoordinator (22).
 # W5 (2026-10-23): 16 of 21 classes, 272 of 272. +NSFetchRequest (30), NSFetchRequestExpression (4).
-#                  classes-missing 5, which are W6's migration classes.
-#                  The first W5 pin said 271: the deprecated +metadataForPersistentStoreWithURL:error: was
-#                  missing from NSPersistentStoreCoordinator. api-ledger missing named it, and it was added.
+#                  The first W5 pin said 271: a deprecated selector was missing and api-ledger named it.
+# W6 (2026-10-23): 21 of 21 CLASSES, 331 of 331 SELECTORS. +NSMappingModel (6), NSEntityMapping (22),
+#                  NSPropertyMapping (6), NSMigrationManager (18), NSEntityMigrationPolicy (7).
+#                  classes-missing 0, selectors-missing 0, methods-declared-not-implemented 0.
+#                  THE DECLARED SURFACE IS COMPLETE. What is NOT done is the store types themselves:
+#                  SQLite, XML and binary refuse by name (W7), and so does every option that belongs to them.
 
-classes-missing 5
+classes-missing 0
 classes-offered 21
-classes-present 16
+classes-present 21
 functions-declared 0
 functions-declared-not-defined 0
 functions-defined-not-declared 0
 functions-missing 0
 functions-offered 0
 functions-present 0
-methods-declared 297
+methods-declared 356
 methods-declared-not-implemented 0
 protocols-missing 0
 protocols-offered 0
@@ -37,6 +40,8 @@ sel:NSAtomicStore 12
 sel:NSAtomicStoreCacheNode 6
 sel:NSAttributeDescription 9
 sel:NSEntityDescription 27
+sel:NSEntityMapping 22
+sel:NSEntityMigrationPolicy 7
 sel:NSExpressionDescription 4
 sel:NSFetchRequest 30
 sel:NSFetchRequestExpression 4
@@ -45,10 +50,13 @@ sel:NSManagedObject 37
 sel:NSManagedObjectContext 39
 sel:NSManagedObjectID 4
 sel:NSManagedObjectModel 22
+sel:NSMappingModel 6
+sel:NSMigrationManager 18
 sel:NSPersistentStore 19
 sel:NSPersistentStoreCoordinator 22
 sel:NSPropertyDescription 23
+sel:NSPropertyMapping 6
 sel:NSRelationshipDescription 12
 selectors-missing 0
-selectors-offered 272
-selectors-present 272
+selectors-offered 331
+selectors-present 331

@@ -50,4 +50,11 @@
 #import <CoreData/NSFetchRequest.h>
 #import <CoreData/NSFetchRequestExpression.h>
 
+/* W6 — migration. */
+#import <CoreData/NSPropertyMapping.h>
+#import <CoreData/NSEntityMapping.h>
+#import <CoreData/NSMappingModel.h>
+#import <CoreData/NSEntityMigrationPolicy.h>
+#import <CoreData/NSMigrationManager.h>
+
 #endif /* COREDATA_COREDATA_H */

@@ -87,3 +87,10 @@ target_link_libraries(fetch PRIVATE Data CoreFoundation::CoreFoundation objc)
 
 add_test(NAME fetch COMMAND fetch)
 set_tests_properties(fetch PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# W6's gate: the inference in both directions, the archive, and a migration that is actually RUN.
+add_executable(migration migration.m)
+target_link_libraries(migration PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME migration COMMAND migration)
+set_tests_properties(migration PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
