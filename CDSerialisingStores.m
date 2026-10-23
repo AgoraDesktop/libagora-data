@@ -85,6 +85,11 @@ static NSError *CDStoreFileError(NSInteger code, NSString *why)
 			 * exists to deal with, and a node for it would be a row nothing can name. */
 			continue;
 		}
+		if (![self cd_entityInConfiguration:entity]) {
+			/* AND AN ENTITY OUTSIDE THIS STORE'S CONFIGURATION IS NOT LOADED, which is what a configuration is
+			 * FOR: two stores over one file, each seeing its own half of the model (§7.5). */
+			continue;
+		}
 		objectID = [self objectIDForEntity:entity referenceObject:[entry objectForKey:@"key"]];
 		node = [[NSAtomicStoreCacheNode alloc] initWithObjectID:objectID];
 		[node setPropertyCache:[entry objectForKey:@"values"]];

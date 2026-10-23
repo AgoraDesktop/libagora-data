@@ -78,14 +78,145 @@ static NSDictionary *CDDictionaryForObject(NSManagedObject *object, NSArray *pro
 	return [row autorelease];
 }
 
+NSArray *CDFetchCandidates(NSAtomicStore *store, NSManagedObjectContext *context, NSFetchRequest *request)
+{
+	NSEntityDescription *entity = [request entity];
+	NSMutableArray *matched = [[NSMutableArray alloc] init];
+	NSArray *nodes;
+	NSUInteger i;
+
+	if (entity == nil) {
+		return [matched autorelease];
+	}
+	nodes = [[store cacheNodes] allObjects];
+	for (i = 0; i < [nodes count]; i++) {
+		NSManagedObjectID *objectID = [[nodes objectAtIndex:i] objectID];
+
+		if (!CDEntityMatches([objectID entity], entity, [request includesSubentities])) {
+			continue;
+		}
+		{
+			NSManagedObject *object = [context objectWithID:objectID];
+
+			/* THE PREDICATE IS EVALUATED ON THE OBJECT, not on the row, because a pending insert has no row and a
+			 * relationship's value is an object (COREDATA-PLAN.md §8.1). W7's SQL pushdown replaces this loop. */
+			if ([request predicate] == nil || [[request predicate] evaluateWithObject:object]) {
+				[matched addObject:object];
+			}
+		}
+	}
+	return [matched autorelease];
+}
+
+NSArray *CDFetchPendingCandidates(NSManagedObjectContext *context, NSFetchRequest *request)
+{
+	NSEntityDescription *entity = [request entity];
+	NSMutableArray *matched = [[NSMutableArray alloc] init];
+	NSArray *inserted = [[context insertedObjects] allObjects];
+	NSUInteger i;
+
+	/* PENDING INSERTS HAVE NO ROWS, which is exactly why the engine is here and not in the store, and why they are
+	 * gathered ONCE for the whole fetch rather than once per store. */
+	if (![request includesPendingChanges] || entity == nil) {
+		return [matched autorelease];
+	}
+	for (i = 0; i < [inserted count]; i++) {
+		NSManagedObject *object = [inserted objectAtIndex:i];
+
+		if (!CDEntityMatches([object entity], entity, [request includesSubentities])) {
+			continue;
+		}
+		if ([request predicate] == nil || [[request predicate] evaluateWithObject:object]) {
+			[matched addObject:object];
+		}
+	}
+	return [matched autorelease];
+}
+
+id CDFetchShape(NSArray *candidates, NSFetchRequest *request, NSEntityDescription *entity)
+{
+	NSMutableArray *matched = [candidates mutableCopy];
+	NSUInteger i;
+
+	if ([[request sortDescriptors] count] > 0) {
+		NSArray *sorted = [matched sortedArrayUsingDescriptors:[request sortDescriptors]];
+		[matched release];
+		matched = [sorted mutableCopy];
+	}
+
+	/* OFFSET THEN LIMIT, in that order: paging reads "skip n, take m", and doing it the other way takes the first m
+	 * of the whole set and then skips inside it. With several stores this is the only place either applies. */
+	if ([request fetchOffset] > 0) {
+		NSUInteger offset = [request fetchOffset];
+
+		if (offset >= [matched count]) {
+			[matched removeAllObjects];
+		} else {
+			[matched removeObjectsInRange:NSMakeRange(0, offset)];
+		}
+	}
+	if ([request fetchLimit] > 0 && [matched count] > [request fetchLimit]) {
+		[matched removeObjectsInRange:NSMakeRange([request fetchLimit], [matched count] - [request fetchLimit])];
+	}
+
+	/* THE SHAPING. `fetchBatchSize` is a memory hint with nothing to bound here — the in-memory store has no rows to
+	 * page — so it is accepted and not acted on, which is Apple's contract for it as well. */
+	{
+		NSArray *result;
+
+		switch ([request resultType]) {
+		case NSManagedObjectIDResultType: {
+			NSMutableArray *ids = [NSMutableArray array];
+
+			for (i = 0; i < [matched count]; i++) {
+				NSManagedObjectID *objectID = [[matched objectAtIndex:i] objectID];
+				if ([request returnsDistinctResults] && [ids containsObject:objectID]) {
+					continue;
+				}
+				[ids addObject:objectID];
+			}
+			result = [[ids copy] autorelease];
+			break;
+		}
+		case NSDictionaryResultType: {
+			NSArray *properties = [request propertiesToFetch];
+			NSMutableArray *rows = [NSMutableArray array];
+
+			if (properties == nil) {
+				properties = (entity != nil) ? [[entity propertiesByName] allValues] : [NSArray array];
+			}
+			for (i = 0; i < [matched count]; i++) {
+				NSDictionary *row = CDDictionaryForObject([matched objectAtIndex:i], properties);
+				if ([request returnsDistinctResults] && [rows containsObject:row]) {
+					continue;
+				}
+				[rows addObject:row];
+			}
+			result = [[rows copy] autorelease];
+			break;
+		}
+		default:
+			result = [[matched copy] autorelease];
+			break;
+		}
+
+		/* FAULTS AT THE DOOR: the pipeline had to materialise every candidate to judge it, but a caller that asked
+		 * for faults gets faults, and reading one fires it from the node the way any other fault does. */
+		if ([request resultType] == NSManagedObjectResultType && [request returnsObjectsAsFaults]) {
+			for (i = 0; i < [result count]; i++) {
+				[[result objectAtIndex:i] cd_turnIntoFault];
+			}
+		}
+		[matched release];
+		return result;
+	}
+}
+
 NSArray *CDFetchExecute(NSAtomicStore *store, NSManagedObjectContext *context,
                         NSFetchRequest *request, NSError **error)
 {
 	NSEntityDescription *entity;
 	NSMutableArray *candidates;
-	NSMutableArray *matched;
-	NSArray *nodes;
-	NSUInteger i;
 
 	if (request == nil) {
 		if (error != NULL) {
@@ -105,112 +236,12 @@ NSArray *CDFetchExecute(NSAtomicStore *store, NSManagedObjectContext *context,
 		}
 		return nil;
 	}
-	/* AFFECTED STORES IS A SCOPE, AND A STORE OUTSIDE IT ANSWERS NOTHING rather than everything. */
-	if ([[request affectedStores] count] > 0 && ![[request affectedStores] containsObject:store]) {
-		return [NSArray array];
-	}
-
 	candidates = [[NSMutableArray alloc] init];
-	nodes = [[store cacheNodes] allObjects];
-	for (i = 0; i < [nodes count]; i++) {
-		NSManagedObjectID *objectID = [[nodes objectAtIndex:i] objectID];
-		if (CDEntityMatches([objectID entity], entity, [request includesSubentities])) {
-			[candidates addObject:[context objectWithID:objectID]];
-		}
-	}
-
-	/* PENDING INSERTS HAVE NO ROWS, which is exactly why the engine is here and not in the store. */
-	if ([request includesPendingChanges]) {
-		NSArray *inserted = [[context insertedObjects] allObjects];
-		for (i = 0; i < [inserted count]; i++) {
-			NSManagedObject *object = [inserted objectAtIndex:i];
-			if (!CDEntityMatches([object entity], entity, [request includesSubentities])) {
-				continue;
-			}
-			if (![candidates containsObject:object]) {
-				[candidates addObject:object];
-			}
-		}
-	}
-
-	matched = [[NSMutableArray alloc] init];
-	for (i = 0; i < [candidates count]; i++) {
-		NSManagedObject *object = [candidates objectAtIndex:i];
-		if ([request predicate] == nil || [[request predicate] evaluateWithObject:object]) {
-			[matched addObject:object];
-		}
-	}
-	[candidates release];
-
-	if ([[request sortDescriptors] count] > 0) {
-		NSArray *sorted = [matched sortedArrayUsingDescriptors:[request sortDescriptors]];
-		[matched release];
-		matched = [sorted mutableCopy];
-	}
-
-	/* OFFSET THEN LIMIT, in that order: paging reads "skip n, take m", and doing it the other way takes the first
-	 * m of the whole set and then skips inside it. */
-	if ([request fetchOffset] > 0) {
-		NSUInteger offset = [request fetchOffset];
-		if (offset >= [matched count]) {
-			[matched removeAllObjects];
-		} else {
-			[matched removeObjectsInRange:NSMakeRange(0, offset)];
-		}
-	}
-	if ([request fetchLimit] > 0 && [matched count] > [request fetchLimit]) {
-		[matched removeObjectsInRange:NSMakeRange([request fetchLimit], [matched count] - [request fetchLimit])];
-	}
-
-	/* THE SHAPING. `fetchBatchSize` is a memory hint with nothing to bound here — the in-memory store has no rows
-	 * to page — so it is accepted and not acted on, which is Apple's contract for it as well. */
+	[candidates addObjectsFromArray:CDFetchCandidates(store, context, request)];
+	[candidates addObjectsFromArray:CDFetchPendingCandidates(context, request)];
 	{
-		NSArray *result;
-
-		switch ([request resultType]) {
-		case NSManagedObjectIDResultType: {
-			NSMutableArray *ids = [NSMutableArray array];
-			for (i = 0; i < [matched count]; i++) {
-				NSManagedObjectID *objectID = [[matched objectAtIndex:i] objectID];
-				if ([request returnsDistinctResults] && [ids containsObject:objectID]) {
-					continue;
-				}
-				[ids addObject:objectID];
-			}
-			result = [[ids copy] autorelease];
-			break;
-		}
-		case NSDictionaryResultType: {
-			NSArray *properties = [request propertiesToFetch];
-			NSMutableArray *rows = [NSMutableArray array];
-
-			if (properties == nil) {
-				properties = [[entity propertiesByName] allValues];
-			}
-			for (i = 0; i < [matched count]; i++) {
-				NSDictionary *row = CDDictionaryForObject([matched objectAtIndex:i], properties);
-				if ([request returnsDistinctResults] && [rows containsObject:row]) {
-					continue;
-				}
-				[rows addObject:row];
-			}
-			result = [[rows copy] autorelease];
-			break;
-		}
-		default: {
-			result = [[matched copy] autorelease];
-			break;
-		}
-		}
-
-		/* FAULTS AT THE DOOR: the pipeline had to materialise every candidate to judge it, but a caller that asked
-		 * for faults gets faults, and reading one fires it from the node the way any other fault does. */
-		if ([request resultType] == NSManagedObjectResultType && [request returnsObjectsAsFaults]) {
-			for (i = 0; i < [result count]; i++) {
-				[[result objectAtIndex:i] cd_turnIntoFault];
-			}
-		}
-		[matched release];
+		id result = CDFetchShape(candidates, request, entity);
+		[candidates release];
 		return result;
 	}
 }

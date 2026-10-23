@@ -12,11 +12,13 @@
 # W1: 7 of 21 classes, 99 of 99. W2: 9 of 21, 140 of 140. W3: 10 of 21, 179 of 179. W4: 14 of 21, 238 of 238.
 # W5: 16 of 21, 272 of 272 (the first pin said 271; api-ledger missing named the deprecated selector).
 # W6: 21 of 21 classes, 331 of 331 selectors — the declared surface complete.
-# W7: still 21 of 21 and 331 of 331: the three serialising stores are PRIVATE classes, so the public surface is
-#     the store TYPES. methods-declared rises with each private class.
-# W7b (relationships): 21 of 21 and 331 of 331 again. To-many values are mutable collections, inverses are
-#     maintained by the object graph, stores persist references, and faults resolve them — none of which is a
-#     manifest selector, because 10.6's surface describes the doors and not the semantics behind them.
+# W7: still 21 of 21 and 331 of 331: the three serialising stores are PRIVATE classes.
+# W7b relationships: unchanged again — to-many collections, inverses, references and resolution are all behind
+#     doors the manifest already counted.
+# W7c ROUTING: unchanged, and that is the point of the note in §0.11: configuration partitioning and
+#     -assignObject:toPersistentStore: were DECLARED, IMPLEMENTED and NEVER ASKED, so the census scored them and
+#     the behaviour was wrong. `tests/routing.m` asks them. A census measures doors; it cannot measure whether
+#     anything opens them.
 
 classes-missing 0
 classes-offered 21
@@ -27,7 +29,7 @@ functions-defined-not-declared 0
 functions-missing 0
 functions-offered 0
 functions-present 0
-methods-declared 361
+methods-declared 363
 methods-declared-not-implemented 0
 protocols-missing 0
 protocols-offered 0

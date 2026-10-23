@@ -86,6 +86,12 @@ NSString *const NSExternalRecordExtensionOption = @"NSExternalRecordExtension";
 
 static NSMutableDictionary *CDStoreRegistry = nil;
 
+/* THE ROUTING DOOR, declared here because the save, the ID assignment, the fault and the fetch all ask it the same
+ * question and it must answer it the same way: which store owns this object? */
+@interface NSPersistentStoreCoordinator (CDRouting)
+- (NSPersistentStore *)cd_storeForObject:(id)object inContext:(NSManagedObjectContext *)context;
+@end
+
 static NSError *CDCoordinatorError(NSInteger code, NSString *why)
 {
 	return [NSError errorWithDomain:@"NSCocoaErrorDomain" code:code
@@ -404,13 +410,63 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	         (unsigned long)[_stores count]];
 }
 
+/* ---- routing ------------------------------------------------------------------------------------- */
+
+- (NSPersistentStore *)cd_storeForObject:(id)object inContext:(NSManagedObjectContext *)context
+{
+	NSPersistentStore *assigned;
+	NSManagedObjectID *objectID;
+	BOOL anyConfigured = NO;
+	NSUInteger i;
+
+	/* 1. AN EXPLICIT ASSIGNMENT WINS, which is what `-assignObject:toPersistentStore:` is for. */
+	assigned = (NSPersistentStore *)[(id)context cd_persistentStoreForObject:object];
+	if (assigned != nil && [_stores containsObject:assigned]) {
+		return assigned;
+	}
+
+	/* 2. AN OBJECT THAT ALREADY LIVES IN A STORE STAYS THERE. Its ID names the store, and moving a row between
+	 * stores is `-migratePersistentStore:`, not a save. */
+	objectID = (object != nil) ? [object objectID] : nil;
+	if (objectID != nil && ![objectID isTemporaryID]) {
+		id home = [objectID persistentStore];
+		if (home != nil && [_stores containsObject:home]) {
+			return (NSPersistentStore *)home;
+		}
+	}
+
+	/* 3. OTHERWISE THE CONFIGURATION DECIDES (§7.5), and a store whose configuration does not name the entity is
+	 * NOT a fallback: writing a Person into a store configured for Notes is the bug this rule exists to prevent. */
+	for (i = 0; i < [_stores count]; i++) {
+		NSPersistentStore *store = [_stores objectAtIndex:i];
+		NSString *configuration = [store configurationName];
+
+		if (configuration == nil) {
+			continue;
+		}
+		anyConfigured = YES;
+		if ([[_model entitiesForConfiguration:configuration] containsObject:[object entity]]) {
+			return store;
+		}
+	}
+	if (anyConfigured) {
+		return nil;	/* configured stores exist and none names this entity: the caller reports it */
+	}
+	return ([_stores count] > 0) ? [_stores objectAtIndex:0] : nil;
+}
+
 /* ---- CDStoreDoors: what W3 asks of a store -------------------------------------------------------- */
 
 - (void)cd_faultObject:(NSManagedObject *)object inContext:(NSManagedObjectContext *)context
 {
-	NSPersistentStore *store = ([_stores count] > 0) ? [_stores objectAtIndex:0] : nil;
+	NSPersistentStore *store = (NSPersistentStore *)[[object objectID] persistentStore];
 	NSAtomicStoreCacheNode *node;
 
+	/* THE FAULT COMES FROM THE STORE THE ID NAMES. With one store the old code always guessed right, which is why
+	 * this was invisible until a coordinator held two. */
+	if (store == nil || ![_stores containsObject:store]) {
+		store = ([_stores count] > 0) ? [_stores objectAtIndex:0] : nil;
+	}
 	if (store == nil) {
 		return;
 	}
@@ -471,11 +527,9 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
                              inContext:(NSManagedObjectContext *)context
                                  error:(NSError **)error
 {
-	NSPersistentStore *store = ([_stores count] > 0) ? [_stores objectAtIndex:0] : nil;
 	NSUInteger i;
 
-	(void)context;
-	if (store == nil) {
+	if ([_stores count] == 0) {
 		if (error != NULL) {
 			*error = CDCoordinatorError(NSPersistentStoreOperationError, @"no persistent store is attached");
 		}
@@ -483,8 +537,21 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	}
 	for (i = 0; i < [objects count]; i++) {
 		NSManagedObject *object = [objects objectAtIndex:i];
+		NSPersistentStore *store;
+
 		if (![[object objectID] isTemporaryID]) {
 			continue;
+		}
+		/* THE KEY IS MINTED BY THE STORE THE OBJECT IS GOING TO, not by the first one: a key from the wrong store
+		 * is an ID that names a row in a file the object will never be written to. */
+		store = [self cd_storeForObject:object inContext:context];
+		if (store == nil || ![store isKindOfClass:[NSAtomicStore class]]) {
+			if (error != NULL) {
+				*error = CDCoordinatorError(NSPersistentStoreOperationError,
+				    [NSString stringWithFormat:@"no store is configured for the entity `%@`",
+				                               [[object entity] name]]);
+			}
+			return NO;
 		}
 		{
 			id reference = [(NSAtomicStore *)store newReferenceObjectForManagedObject:object];
@@ -498,23 +565,16 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 
 - (BOOL)cd_saveContext:(NSManagedObjectContext *)context error:(NSError **)error
 {
-	NSPersistentStore *store = ([_stores count] > 0) ? [_stores objectAtIndex:0] : nil;
 	NSArray *inserted;
 	NSArray *updated;
 	NSArray *deleted;
+	NSMutableSet *touched;
 	NSUInteger i;
 
-	if (store == nil) {
+	if ([_stores count] == 0) {
 		if (error != NULL) {
 			*error = CDCoordinatorError(NSPersistentStoreOperationError,
 			                            @"no persistent store is attached to the coordinator");
-		}
-		return NO;
-	}
-	if (![store isKindOfClass:[NSAtomicStore class]]) {
-		if (error != NULL) {
-			*error = CDCoordinatorError(NSPersistentStoreOperationError,
-			                            @"the store is not an NSAtomicStore");
 		}
 		return NO;
 	}
@@ -529,61 +589,124 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	inserted = [[context insertedObjects] allObjects];
 	updated = [[context updatedObjects] allObjects];
 	deleted = [[context deletedObjects] allObjects];
+	touched = [[NSMutableSet alloc] init];
 
-	for (i = 0; i < [inserted count]; i++) {
-		NSManagedObject *object = [inserted objectAtIndex:i];
-		NSAtomicStoreCacheNode *node = [(NSAtomicStore *)store cacheNodeForObjectID:[object objectID]];
+	for (i = 0; i < [inserted count] + [updated count] + [deleted count]; i++) {
+		BOOL isDeleted = (i >= [inserted count] + [updated count]);
+		BOOL isInserted = (i < [inserted count]);
+		NSManagedObject *object = isInserted ? [inserted objectAtIndex:i]
+		    : (isDeleted ? [deleted objectAtIndex:i - [inserted count] - [updated count]]
+		                 : [updated objectAtIndex:i - [inserted count]]);
+		NSPersistentStore *store = [self cd_storeForObject:object inContext:context];
+		NSAtomicStore *atomic;
+		NSAtomicStoreCacheNode *node;
 
+		if (store == nil || ![store isKindOfClass:[NSAtomicStore class]]) {
+			if (error != NULL) {
+				*error = CDCoordinatorError(NSPersistentStoreOperationError,
+				    [NSString stringWithFormat:@"no store holds the entity `%@` of %@",
+				                               [[object entity] name], object]);
+			}
+			[touched release];
+			return NO;
+		}
+		atomic = (NSAtomicStore *)store;
+		[touched addObject:store];
+
+		if (isDeleted) {
+			node = [atomic cacheNodeForObjectID:[object objectID]];
+			if (node != nil) {
+				[atomic willRemoveCacheNodes:[NSSet setWithObject:node]];
+			}
+			continue;
+		}
+		node = [atomic cacheNodeForObjectID:[object objectID]];
 		if (node == nil) {
-			node = [(NSAtomicStore *)store newCacheNodeForManagedObject:object];
-			[(NSAtomicStore *)store addCacheNodes:[NSSet setWithObject:node]];
+			node = [atomic newCacheNodeForManagedObject:object];
+			[atomic addCacheNodes:[NSSet setWithObject:node]];
 			[node release];
 		} else {
-			[(NSAtomicStore *)store updateCacheNode:node fromManagedObject:object];
+			[atomic updateCacheNode:node fromManagedObject:object];
 		}
 		[object cd_applyCommittedValues:[node propertyCache]];
-		[object cd_setInserted:NO];
-	}
-	for (i = 0; i < [updated count]; i++) {
-		NSManagedObject *object = [updated objectAtIndex:i];
-		NSAtomicStoreCacheNode *node = [(NSAtomicStore *)store cacheNodeForObjectID:[object objectID]];
-
-		if (node == nil) {
-			node = [(NSAtomicStore *)store newCacheNodeForManagedObject:object];
-			[(NSAtomicStore *)store addCacheNodes:[NSSet setWithObject:node]];
-			[node release];
-		} else {
-			[(NSAtomicStore *)store updateCacheNode:node fromManagedObject:object];
-		}
-		[object cd_applyCommittedValues:[node propertyCache]];
-	}
-	for (i = 0; i < [deleted count]; i++) {
-		NSManagedObject *object = [deleted objectAtIndex:i];
-		NSAtomicStoreCacheNode *node = [(NSAtomicStore *)store cacheNodeForObjectID:[object objectID]];
-
-		if (node != nil) {
-			[(NSAtomicStore *)store willRemoveCacheNodes:[NSSet setWithObject:node]];
+		if (isInserted) {
+			[object cd_setInserted:NO];
 		}
 	}
-	return [store save:error];
+
+	/* EVERY STORE THAT WAS TOUCHED IS SAVED, which is what makes a two-store save reach both files — and what §6.7
+	 * says is NOT atomic across them. */
+	{
+		NSArray *stores = [touched allObjects];
+
+		for (i = 0; i < [stores count]; i++) {
+			if (![[stores objectAtIndex:i] save:error]) {
+				[touched release];
+				return NO;
+			}
+		}
+	}
+	[touched release];
+	return YES;
 }
 
 - (id)cd_executeFetchRequest:(NSFetchRequest *)request
                    inContext:(NSManagedObjectContext *)context
                        error:(NSError **)error
 {
-	NSPersistentStore *store = ([_stores count] > 0) ? [_stores objectAtIndex:0] : nil;
+	NSArray *scoped = _stores;
+	NSMutableArray *candidates;
+	NSUInteger i;
 
 	/* THE ENGINE IS W5's AND IT RUNS HERE RATHER THAN IN THE STORE, because a fetch must see the context's pending
 	 * inserts and a store has never heard of them (§8.1). */
-	if (store == nil) {
+	if ([_stores count] == 0) {
 		if (error != NULL) {
 			*error = CDCoordinatorError(NSPersistentStoreOperationError,
 			                            @"no persistent store is attached to the coordinator");
 		}
 		return nil;
 	}
-	return CDFetchExecute((NSAtomicStore *)store, context, request, error);
+	/* A REQUEST WITH NO ENTITY IS REFUSED HERE, because the shape stage would happily return an empty array for one
+	 * and "no rows" is not the same answer as "no question". */
+	if (request == nil || [request entity] == nil) {
+		if (error != NULL) {
+			*error = CDCoordinatorError(NSCoreDataError,
+			    @"the fetch request has no entity (COREDATA-PLAN.md W5)");
+		}
+		return nil;
+	}
+	/* `-setAffectedStores:` SCOPES THE FETCH, and a scope that names none of our stores answers nothing rather than
+	 * everything — the direction a wrong default would be worst in. */
+	if ([[request affectedStores] count] > 0) {
+		NSMutableArray *filtered = [[NSMutableArray alloc] init];
+
+		for (i = 0; i < [_stores count]; i++) {
+			if ([[request affectedStores] containsObject:[_stores objectAtIndex:i]]) {
+				[filtered addObject:[_stores objectAtIndex:i]];
+			}
+		}
+		scoped = [filtered autorelease];
+		if ([scoped count] == 0) {
+			return [NSArray array];
+		}
+	}
+
+	candidates = [[NSMutableArray alloc] init];
+	for (i = 0; i < [scoped count]; i++) {
+		NSPersistentStore *store = [scoped objectAtIndex:i];
+
+		if ([store isKindOfClass:[NSAtomicStore class]]) {
+			[candidates addObjectsFromArray:
+			 CDFetchCandidates((NSAtomicStore *)store, context, request)];
+		}
+	}
+	[candidates addObjectsFromArray:CDFetchPendingCandidates(context, request)];
+	{
+		id result = CDFetchShape(candidates, request, [request entity]);
+		[candidates release];
+		return result;
+	}
 }
 
 @end

@@ -25,6 +25,7 @@
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/NSEntityDescription.h>
 #import <CoreData/NSManagedObject.h>
+#import <CoreData/NSAtomicStore.h>
 
 /* SHA-256 of the UTF-8 bytes of `canonical`, as 32 bytes. */
 NSData *CDVersionHashOfCanonicalString(NSString *canonical);
@@ -34,6 +35,12 @@ NSString *CDHexOfData(NSData *data);
 
 /* What a subclass adds to its own hash and to the model's canonical form. The base class contributes the
  * name, the five flags and the modifier; a subclass that contributes nothing else answers "". */
+@interface NSAtomicStore (CDPrivate)
+/* Whether this store's configuration names `entity`. A store opened for one configuration loads and writes only the
+ * entities in it (§7.5); a store with no configuration takes everything. */
+- (BOOL)cd_entityInConfiguration:(NSEntityDescription *)entity;
+@end
+
 @interface NSPropertyDescription (CDPrivate)
 - (NSString *)cd_kind;
 - (NSString *)cd_details;
@@ -44,6 +51,12 @@ NSString *CDHexOfData(NSData *data);
  * and the private one only assigns. This is the whole reason the file exists. */
 @class NSRelationshipDescription;
 @class NSEntityDescription;
+
+@interface NSAtomicStore (CDPrivate)
+/* Whether this store's configuration names `entity`. A store opened for one configuration loads and writes only the
+ * entities in it (§7.5); a store with no configuration takes everything. */
+- (BOOL)cd_entityInConfiguration:(NSEntityDescription *)entity;
+@end
 
 @interface NSPropertyDescription (CDPrivate)
 - (void)cd_setEntity:(NSEntityDescription *)entity;

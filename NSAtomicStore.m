@@ -16,6 +16,7 @@
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSManagedObjectID.h>
 #import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSPropertyDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
 #import <Foundation/NSString.h>
@@ -104,6 +105,17 @@
 		}
 		[node setValue:[managedObject primitiveValueForKey:key] forKey:key];
 	}
+}
+
+- (BOOL)cd_entityInConfiguration:(NSEntityDescription *)entity
+{
+	NSString *configuration = [self configurationName];
+	NSManagedObjectModel *model = [self cd_model];
+
+	if (configuration == nil || model == nil || entity == nil) {
+		return YES;	/* no configuration means every entity, which is the model's own default */
+	}
+	return [[model entitiesForConfiguration:configuration] containsObject:entity];
 }
 
 - (NSSet *)cacheNodes { return [NSSet setWithArray:[_cacheNodes allValues]]; }

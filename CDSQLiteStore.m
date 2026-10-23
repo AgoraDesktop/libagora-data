@@ -327,7 +327,7 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 				[node release];
 				node = nil;
 			}
-			if (entity == nil) {
+			if (entity == nil || ![self cd_entityInConfiguration:entity]) {
 				currentObject = objectKey;
 				continue;
 			}

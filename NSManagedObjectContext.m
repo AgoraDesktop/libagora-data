@@ -693,6 +693,9 @@ static NSError *CDError(NSInteger code, NSString *why)
 	if (_undoManager != nil) {
 		[_undoManager removeAllActions];
 	}
+	/* THE ASSIGNMENTS ARE CONSUMED BY THE SAVE: afterwards an object's ID names the store it went to, which is rule
+	 * two of the coordinator's routing, so keeping the table would only let a stale entry outvote a fact. */
+	[_storeAssignments removeAllObjects];
 	[self unlock];
 
 	[[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification
@@ -759,7 +762,23 @@ static NSError *CDError(NSInteger code, NSString *why)
 - (void)assignObject:(id)object toPersistentStore:(NSPersistentStore *)store
 {
 	if (object == nil) { return; }
-	[_storeAssignments setObject:(store != nil) ? (id)store : (id)[NSNull null] forKey:object];
+	/* THE KEY IS THE OBJECT'S ID, NOT THE OBJECT: a managed object deliberately does not conform to NSCopying (one
+	 * identity, one context, and a copy is a second object claiming the same row), so it cannot be a dictionary key
+	 * — which the first version of this door found at run time, in a message from NSDictionary rather than from a
+	 * compiler. The ID is stable while the object is unsaved and copyable, which is exactly what is needed.
+	 *
+	 * NIL CLEARS THE ASSIGNMENT rather than recording "assigned to nothing": a caller who passes nil means "let the
+	 * coordinator decide again". */
+	if (store == nil) {
+		[_storeAssignments removeObjectForKey:[object objectID]];
+		return;
+	}
+	[_storeAssignments setObject:store forKey:[object objectID]];
+}
+
+- (id)cd_persistentStoreForObject:(id)object
+{
+	return (object != nil) ? [_storeAssignments objectForKey:[object objectID]] : nil;
 }
 
 - (void)setMergePolicy:(id)mergePolicy

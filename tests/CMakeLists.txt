@@ -101,3 +101,10 @@ target_link_libraries(serialisation PRIVATE Data CoreFoundation::CoreFoundation 
 
 add_test(NAME serialisation COMMAND serialisation)
 set_tests_properties(serialisation PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# The two doors the census scored and nothing used: configuration partitioning and multi-store routing.
+add_executable(routing routing.m)
+target_link_libraries(routing PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME routing COMMAND routing)
+set_tests_properties(routing PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
