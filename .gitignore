@@ -1,0 +1,16 @@
+# Build directory: every build artefact goes here
+/build/
+
+# Compiled objects and libraries
+*.o
+*.lo
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*~
