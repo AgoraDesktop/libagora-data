@@ -61,7 +61,7 @@
 
 - (void)updateCacheNode:(NSAtomicStoreCacheNode *)node fromManagedObject:(NSManagedObject *)managedObject
 {
-	NSArray *properties = [[managedObject entity] properties];
+	NSArray *properties = [[[managedObject entity] propertiesByName] allValues];
 	NSUInteger i;
 
 	for (i = 0; i < [properties count]; i++) {

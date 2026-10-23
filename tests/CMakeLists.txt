@@ -80,3 +80,10 @@ target_link_libraries(store PRIVATE Data CoreFoundation::CoreFoundation objc)
 
 add_test(NAME store COMMAND store)
 set_tests_properties(store PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# W5's gate: the pipeline, and every modifier tested against its own default.
+add_executable(fetch fetch.m)
+target_link_libraries(fetch PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME fetch COMMAND fetch)
+set_tests_properties(fetch PROPERTIES ENVIRONMENT "${_agora_data_test_env}")

@@ -46,4 +46,8 @@
 #import <CoreData/NSAtomicStore.h>
 #import <CoreData/NSPersistentStoreCoordinator.h>
 
+/* W5 — the question and its expression. */
+#import <CoreData/NSFetchRequest.h>
+#import <CoreData/NSFetchRequestExpression.h>
+
 #endif /* COREDATA_COREDATA_H */

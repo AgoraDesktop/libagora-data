@@ -29,6 +29,8 @@
 #import <CoreData/NSManagedObjectContext.h>
 #import <CoreData/CoreDataErrors.h>
 #import <CoreData/CDModelPrivate.h>
+#import <CoreData/CDFetchEngine.h>
+#import <CoreData/NSFetchRequest.h>
 #import <Foundation/NSString.h>
 #import <Foundation/NSArray.h>
 #import <Foundation/NSDictionary.h>
@@ -91,7 +93,7 @@ static NSError *CDCoordinatorError(NSInteger code, NSString *why)
 static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 {
 	NSMutableDictionary *values = [[NSMutableDictionary alloc] init];
-	NSArray *properties = [[object entity] properties];
+	NSArray *properties = [[[object entity] propertiesByName] allValues];
 	NSUInteger i;
 
 	for (i = 0; i < [properties count]; i++) {
@@ -491,14 +493,18 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
                    inContext:(NSManagedObjectContext *)context
                        error:(NSError **)error
 {
-	(void)request; (void)context;
-	/* THE FETCH ENGINE IS W5, and a fetch that returned every node would be a wrong answer rather than a missing
-	 * one: `NSFetchRequest` does not exist yet, so there is nothing to honour a predicate with. */
-	if (error != NULL) {
-		*error = CDCoordinatorError(NSCoreDataError,
-		                            @"fetching arrives with NSFetchRequest in COREDATA-PLAN.md W5");
+	NSPersistentStore *store = ([_stores count] > 0) ? [_stores objectAtIndex:0] : nil;
+
+	/* THE ENGINE IS W5's AND IT RUNS HERE RATHER THAN IN THE STORE, because a fetch must see the context's pending
+	 * inserts and a store has never heard of them (§8.1). */
+	if (store == nil) {
+		if (error != NULL) {
+			*error = CDCoordinatorError(NSPersistentStoreOperationError,
+			                            @"no persistent store is attached to the coordinator");
+		}
+		return nil;
 	}
-	return nil;
+	return CDFetchExecute((NSAtomicStore *)store, context, request, error);
 }
 
 @end

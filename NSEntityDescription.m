@@ -146,13 +146,35 @@
 	[property cd_setEntity:entity];
 }
 
+/* INHERITED PROPERTIES ARE PART OF `-propertiesByName`, WHICH IS APPLE'S CONTRACT AND NOT AN OPTIMISATION: an
+ * Employee answers `name` because a Person has one, and a class with its own property list would make every
+ * inherited write an unmodelled key. The chain is walked root-first so a nearer definition wins by name. */
+- (NSArray *)cd_propertiesIncludingInherited
+{
+	NSMutableArray *chain = [[NSMutableArray alloc] init];
+	NSMutableArray *all = [[NSMutableArray alloc] init];
+	NSEntityDescription *e;
+	NSUInteger i;
+
+	for (e = self; e != nil; e = e->_superentity) {
+		[chain insertObject:e atIndex:0];
+	}
+	for (i = 0; i < [chain count]; i++) {
+		NSEntityDescription *step = [chain objectAtIndex:i];
+		[all addObjectsFromArray:step->_properties];
+	}
+	[chain release];
+	return [all autorelease];
+}
+
 - (NSDictionary *)propertiesByName
 {
 	NSMutableDictionary *out = [[NSMutableDictionary alloc] init];
-	NSUInteger i, n = [_properties count];
+	NSArray *all = [self cd_propertiesIncludingInherited];
+	NSUInteger i;
 
-	for (i = 0; i < n; i++) {
-		NSPropertyDescription *p = [_properties objectAtIndex:i];
+	for (i = 0; i < [all count]; i++) {
+		NSPropertyDescription *p = [all objectAtIndex:i];
 		[out setObject:p forKey:[p name]];
 	}
 	return [out autorelease];
@@ -161,10 +183,11 @@
 - (NSDictionary *)attributesByName
 {
 	NSMutableDictionary *out = [[NSMutableDictionary alloc] init];
-	NSUInteger i, n = [_properties count];
+	NSArray *all = [self cd_propertiesIncludingInherited];
+	NSUInteger i, n = [all count];
 
 	for (i = 0; i < n; i++) {
-		NSPropertyDescription *p = [_properties objectAtIndex:i];
+		NSPropertyDescription *p = [all objectAtIndex:i];
 		if ([p isKindOfClass:[NSAttributeDescription class]]) {
 			[out setObject:p forKey:[p name]];
 		}
@@ -175,10 +198,11 @@
 - (NSDictionary *)relationshipsByName
 {
 	NSMutableDictionary *out = [[NSMutableDictionary alloc] init];
-	NSUInteger i, n = [_properties count];
+	NSArray *all = [self cd_propertiesIncludingInherited];
+	NSUInteger i, n = [all count];
 
 	for (i = 0; i < n; i++) {
-		NSPropertyDescription *p = [_properties objectAtIndex:i];
+		NSPropertyDescription *p = [all objectAtIndex:i];
 		if ([p isKindOfClass:[NSRelationshipDescription class]]) {
 			[out setObject:p forKey:[p name]];
 		}
@@ -189,10 +213,11 @@
 - (NSArray *)relationshipsWithDestinationEntity:(NSEntityDescription *)entity
 {
 	NSMutableArray *out = [[NSMutableArray alloc] init];
-	NSUInteger i, n = [_properties count];
+	NSArray *inherited = [self cd_propertiesIncludingInherited];
+	NSUInteger i, n = [inherited count];
 
 	for (i = 0; i < n; i++) {
-		NSPropertyDescription *p = [_properties objectAtIndex:i];
+		NSPropertyDescription *p = [inherited objectAtIndex:i];
 		if ([p isKindOfClass:[NSRelationshipDescription class]] &&
 		    [(NSRelationshipDescription *)p destinationEntity] == entity) {
 			[out addObject:p];
@@ -317,8 +342,11 @@
 	NSMutableString *canonical;
 	NSUInteger i;
 
-	for (i = 0; i < [_properties count]; i++) {
-		[names addObject:[[_properties objectAtIndex:i] name]];
+	{
+		NSArray *all = [self cd_propertiesIncludingInherited];
+		for (i = 0; i < [all count]; i++) {
+			[names addObject:[[all objectAtIndex:i] name]];
+		}
 	}
 	[names sortUsingSelector:@selector(compare:)];
 
