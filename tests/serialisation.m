@@ -52,8 +52,30 @@ static NSManagedObjectModel *Model(BOOL withExtra)
 		[properties addObject:Attr(@"extra", NSStringAttributeType)];
 	}
 	[person setName:@"Person"];
-	[person setProperties:properties];
-	[model setEntities:[NSArray arrayWithObject:person]];
+
+	{
+		/* A TO-ONE AND ITS TO-MANY INVERSE, because a store that persists attributes and drops relationships would
+		 * pass every other check in this file. */
+		NSEntityDescription *department = [[[NSEntityDescription alloc] init] autorelease];
+		NSRelationshipDescription *staff = [[[NSRelationshipDescription alloc] init] autorelease];
+		NSRelationshipDescription *belongs = [[[NSRelationshipDescription alloc] init] autorelease];
+
+		[staff setName:@"staff"];
+		[staff setMaxCount:0];
+		[staff setDestinationEntity:person];
+		[belongs setName:@"department"];
+		[belongs setDestinationEntity:department];
+		[belongs setInverseRelationship:staff];
+		[properties addObject:belongs];
+
+		[department setName:@"Department"];
+		[department setProperties:[NSArray arrayWithObjects:Attr(@"title", NSStringAttributeType), staff, nil]];
+		/* THE PERSON'S PROPERTIES ARE INSTALLED AFTER THE RELATIONSHIP EXISTS, because `-setProperties:` COPIES the
+		 * array: adding to it afterwards was the first version of this fixture and it produced an object that could
+		 * not be sent `department`. */
+		[person setProperties:properties];
+		[model setEntities:[NSArray arrayWithObjects:person, department, nil]];
+	}
 	return model;
 }
 
@@ -98,7 +120,28 @@ static void Exercise(NSString *storeType, NSString *path)
 			fprintf(stderr, "  [%s] save failed: %s\n", [storeType UTF8String],
 			        [[error description] UTF8String]);
 		}
-		CHECK([ctx save:&error] == YES, "three rows save");
+		{
+			NSEntityDescription *departmentEntity = [[model entitiesByName] objectForKey:@"Department"];
+			NSManagedObject *engineering = [[NSManagedObject alloc] initWithEntity:departmentEntity
+			                                           insertIntoManagedObjectContext:ctx];
+			NSArray *everyone = [[ctx registeredObjects] allObjects];
+			NSUInteger p;
+
+			[engineering setValue:@"Engineering" forKey:@"title"];
+			/* SETTING THE TO-ONE IS ENOUGH: the inverse is maintained by the object graph, which is the point of
+			 * this check — the store only ever sees the result. */
+			for (p = 0; p < [everyone count]; p++) {
+				NSManagedObject *member = [everyone objectAtIndex:p];
+				if ([[member entity] isKindOfClass:[NSEntityDescription class]] &&
+				    [[[member entity] name] isEqual:@"Person"]) {
+					[member setValue:engineering forKey:@"department"];
+				}
+			}
+			CHECK([[engineering valueForKey:@"staff"] count] == 3,
+			      "the inverse to-many was filled by setting each to-one");
+			[engineering release];
+		}
+		CHECK([ctx save:&error] == YES, "three rows and a department save");
 		[ctx release];
 		[coordinator release];
 	}
@@ -139,6 +182,29 @@ static void Exercise(NSString *storeType, NSString *path)
 			CHECK([[[found objectAtIndex:1] valueForKey:@"age"] intValue] == 33, "then carol at 33");
 			CHECK([[[found objectAtIndex:2] valueForKey:@"score"] doubleValue] == 1.5,
 			      "a double survived the round trip");
+			/* THE RELATIONSHIP: the stored reference is resolved into an object when the fault fires, and reading
+			 * THROUGH it fires a second fault — two hops, both from the file. */
+			{
+				NSManagedObject *department = [[found objectAtIndex:1] valueForKey:@"department"];
+
+				CHECK(department != nil, "the to-one came back as an object, not as a stored string");
+				CHECK([[[department valueForKey:@"title"] description] isEqual:@"Engineering"],
+				      "and reading through it gets the related row's value");
+			}
+		}
+		/* AND THE OTHER DIRECTION: the to-many side names all three rows */
+		{
+			NSFetchRequest *departments = [[NSFetchRequest alloc] init];
+			NSArray *foundDepartments;
+
+			[departments setEntity:[[model entitiesByName] objectForKey:@"Department"]];
+			foundDepartments = [ctx executeFetchRequest:departments error:&error];
+			CHECK([foundDepartments count] == 1, "the department was stored");
+			if ([foundDepartments count] == 1) {
+				CHECK([[[foundDepartments objectAtIndex:0] valueForKey:@"staff"] count] == 3,
+				      "and its to-many resolved all three members");
+			}
+			[departments release];
 		}
 		[request release];
 		[ctx release];
@@ -177,18 +243,26 @@ int main(void)
 	/* THE SCHEMA IS THE ONE THE DOCUMENT DESCRIBES, CHECKED BY A STANDARD SQLITE CLIENT — which is D1-b's whole
 	 * promise: a developer can open the file and read the data.
 	 *
-	 * THE FIRST VERSION OF THIS CHECK USED THE `sqlite3` BINARY, AND THIS MACHINE DOES NOT HAVE ONE, so the check
-	 * silently did nothing. Python's `sqlite3` module is the same client library through a different door, and when
-	 * neither is available the check SKIPS LOUDLY rather than passing by accident. */
+	 * THE CHECK IS NOW A SCRIPT RATHER THAN A ONE-LINER, because it grew a second question: not just that the tables
+	 * are there and the rows are typed, but that a to-many relationship is legible as an `array` row. And when
+	 * python3 is absent the check SKIPS LOUDLY: an earlier version shelled out to a binary this machine does not
+	 * have, and passed by doing nothing. */
 	if (system("command -v python3 > /dev/null 2>&1") == 0) {
-		int status = system(
-		    "python3 -c \"import sqlite3,sys;"
-		    "db=sqlite3.connect('/tmp/libagora-data-test.sqlite');"
-		    "names=[r[0] for r in db.execute(\\\"SELECT name FROM sqlite_master WHERE type='table'\\\")];"
-		    "rows=list(db.execute('SELECT COUNT(*) FROM agora_value'));"
-		    "sys.exit(0 if 'agora_value' in names and 'agora_object' in names and rows[0][0]==9 else 1)\" "
-		    "> /dev/null 2>&1");
-		CHECK(status == 0, "a standard SQLite client reads the schema's tables and all nine values");
+		FILE *script = fopen("/tmp/libagora-data-schema-check.py", "w");
+
+		if (script != NULL) {
+			fputs("import sqlite3, sys\n"
+			      "db = sqlite3.connect('/tmp/libagora-data-test.sqlite')\n"
+			      "tables = {r[0] for r in db.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")}\n"
+			      "types = {r[0] for r in db.execute('SELECT DISTINCT type FROM agora_value')}\n"
+			      "rows = db.execute('SELECT COUNT(*) FROM agora_value').fetchone()[0]\n"
+			      "want = {'agora_entity', 'agora_metadata', 'agora_object', 'agora_value'}\n"
+			      "ok = want <= tables and {'integer', 'real', 'string', 'array'} <= types and rows >= 14\n"
+			      "sys.exit(0 if ok else 1)\n", script);
+			fclose(script);
+			CHECK(system("python3 /tmp/libagora-data-schema-check.py > /dev/null 2>&1") == 0,
+			      "a standard client reads the tables, the typed values and a relationship's array row");
+		}
 	} else {
 		fprintf(stderr, "  (no python3: the SQLite readability check was SKIPPED, not passed)\n");
 	}

@@ -67,14 +67,39 @@
 
 	for (i = 0; i < [properties count]; i++) {
 		NSString *key = [[properties objectAtIndex:i] name];
-		/* TRANSIENT PROPERTIES ARE NOT STORED, which is the one flag a store must honour or the model is a lie.
-		 *
-		 * RELATIONSHIPS ARE NOT STORED EITHER, YET: a relationship's value is another managed OBJECT, and a node is
-		 * scalar values. Persisting it means writing the related row's key and resolving that key back into an
-		 * object on load — the storage half is trivial, the resolution half needs the fault path to translate
-		 * keys into objects, and that is the next slice rather than something to fake with a wrong type here. */
-		if ([[properties objectAtIndex:i] isTransient] ||
-		    [[properties objectAtIndex:i] isKindOfClass:[NSRelationshipDescription class]]) {
+		NSPropertyDescription *property = [properties objectAtIndex:i];
+
+		/* TRANSIENT PROPERTIES ARE NOT STORED, which is the one flag a store must honour or the model is a lie. */
+		if ([property isTransient]) {
+			continue;
+		}
+		/* A RELATIONSHIP IS STORED AS THE RELATED OBJECT'S IDENTITY, not as the object: a node holds scalars, and an
+		 * object ID's URI form is exactly the scalar that names a row without naming an instance. To-many becomes an
+		 * array of them. The coordinator resolves them back into objects when a fault fires, which is why the node
+		 * format needs no type marker — the model already says which properties are relationships. */
+		if ([property isKindOfClass:[NSRelationshipDescription class]]) {
+			NSRelationshipDescription *relationship = (NSRelationshipDescription *)property;
+			id value = [managedObject primitiveValueForKey:key];
+
+			if ([relationship isToMany]) {
+				NSArray *members = (value == nil) ? nil
+				    : ([value respondsToSelector:@selector(allObjects)] ? [value allObjects]
+				                                                       : [NSArray arrayWithObject:value]);
+				NSMutableArray *references = [[NSMutableArray alloc] init];
+				NSUInteger m;
+
+				for (m = 0; m < [members count]; m++) {
+					id member = [members objectAtIndex:m];
+					if (![member isKindOfClass:[NSManagedObject class]]) { continue; }
+					[references addObject:[[[member objectID] URIRepresentation] absoluteString]];
+				}
+				[node setValue:([references count] > 0) ? references : nil forKey:key];
+				[references release];
+			} else if ([value isKindOfClass:[NSManagedObject class]]) {
+				[node setValue:[[[value objectID] URIRepresentation] absoluteString] forKey:key];
+			} else {
+				[node setValue:nil forKey:key];
+			}
 			continue;
 		}
 		[node setValue:[managedObject primitiveValueForKey:key] forKey:key];

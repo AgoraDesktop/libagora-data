@@ -24,6 +24,8 @@
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSEntityDescription.h>
 #import <CoreData/NSPropertyDescription.h>
+#import <CoreData/NSRelationshipDescription.h>
+#import <CoreData/NSPropertyDescription.h>
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSManagedObjectID.h>
 #import <CoreData/NSManagedObjectContext.h>
@@ -409,13 +411,59 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	NSPersistentStore *store = ([_stores count] > 0) ? [_stores objectAtIndex:0] : nil;
 	NSAtomicStoreCacheNode *node;
 
-	(void)context;
 	if (store == nil) {
 		return;
 	}
 	node = [(NSAtomicStore *)store cacheNodeForObjectID:[object objectID]];
-	if (node != nil) {
-		[object cd_applyCommittedValues:[node propertyCache]];
+	if (node == nil) {
+		return;
+	}
+	/* THE NODE HOLDS REFERENCES, NOT OBJECTS (NSAtomicStore stores a relationship as the related row's URI), so the
+	 * fault path is where a reference becomes an object again. That is the whole reason the store's format needs no
+	 * second table: identity does the joining, and the context is the only thing that may mint the instance. */
+	{
+		NSDictionary *cache = [node propertyCache];
+		NSDictionary *properties = [[object entity] propertiesByName];
+		NSMutableDictionary *resolved = [[NSMutableDictionary alloc] init];
+		NSArray *keys = [cache allKeys];
+		NSUInteger i;
+
+		for (i = 0; i < [keys count]; i++) {
+			NSString *key = [keys objectAtIndex:i];
+			id value = [cache objectForKey:key];
+			NSPropertyDescription *property = [properties objectForKey:key];
+
+			if (![property isKindOfClass:[NSRelationshipDescription class]]) {
+				[resolved setObject:value forKey:key];
+				continue;
+			}
+			if ([(NSRelationshipDescription *)property isToMany]) {
+				NSMutableSet *related = [[NSMutableSet alloc] init];
+				NSUInteger m;
+
+				for (m = 0; m < [value count]; m++) {
+					NSManagedObjectID *objectID =
+					    [self managedObjectIDForURIRepresentation:
+					         [NSURL URLWithString:[value objectAtIndex:m]]];
+					NSManagedObject *member = (objectID != nil) ? [context objectWithID:objectID] : nil;
+
+					if (member != nil) { [related addObject:member]; }
+				}
+				if ([related count] > 0) {
+					[resolved setObject:related forKey:key];
+				}
+				[related release];
+			} else if ([value isKindOfClass:[NSString class]]) {
+				NSManagedObjectID *objectID =
+				    [self managedObjectIDForURIRepresentation:[NSURL URLWithString:value]];
+
+				if (objectID != nil) {
+					[resolved setObject:[context objectWithID:objectID] forKey:key];
+				}
+			}
+		}
+		[object cd_applyCommittedValues:resolved];
+		[resolved release];
 	}
 }
 

@@ -35,6 +35,7 @@
 #import <Foundation/NSError.h>
 #import <Foundation/NSException.h>
 #import <Foundation/NSKeyValueObserving.h>
+
 #import <Foundation/NSUndoManager.h>
 #import <CoreData/NSManagedObjectContext.h>
 
@@ -75,6 +76,7 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 	[_objectID release];
 	[_committed release];
 	[_changed release];
+	[_mutableSets release];
 	[super dealloc];
 }
 
@@ -191,9 +193,42 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 
 /* ---- the values ---------------------------------------------------------------------------------- */
 
+- (NSRelationshipDescription *)cd_relationshipForKey:(NSString *)key
+{
+	NSPropertyDescription *property = [[_entity propertiesByName] objectForKey:key];
+
+	return [property isKindOfClass:[NSRelationshipDescription class]]
+	    ? (NSRelationshipDescription *)property : nil;
+}
+
+/* A TO-MANY VALUE IS A COLLECTION, NOT A VALUE, and a collection a caller cannot add to is not a relationship:
+ * `-primitiveValueForKey:` answers a working NSMutableSet that IS the object's value, so `[dept.staff member]`
+ * style access and `-addObject:` both do the expected thing. Mutations through the set do not yet fire KVO or
+ * register undo — that needs a proxied collection, and it is the next slice rather than a claim made here. */
 - (id)primitiveValueForKey:(NSString *)key
 {
+	NSRelationshipDescription *relationship = [self cd_relationshipForKey:key];
 	id value = [_changed objectForKey:key];
+
+	if (relationship != nil && [relationship isToMany]) {
+		NSMutableSet *working = [_mutableSets objectForKey:key];
+
+		if (working == nil) {
+			working = [[NSMutableSet alloc] init];
+			if (value != nil && value != [NSNull null]) {
+				[working unionSet:value];
+			} else {
+				value = [_committed objectForKey:key];
+				if (value != nil) { [working unionSet:value]; }
+			}
+			if (_mutableSets == nil) {
+				_mutableSets = [[NSMutableDictionary alloc] init];
+			}
+			[_mutableSets setObject:working forKey:key];
+			[working release];
+		}
+		return working;
+	}
 
 	if (value != nil) {
 		return (value == [NSNull null]) ? nil : value;
@@ -224,6 +259,21 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 	}
 	if (_changed == nil) {
 		_changed = [[NSMutableDictionary alloc] init];
+	}
+	{
+		NSRelationshipDescription *relationship = [self cd_relationshipForKey:key];
+
+		if (relationship != nil && [relationship isToMany]) {
+			NSMutableSet *working = [(value != nil) ? value : (id)[NSSet set] mutableCopy];
+
+			if (_mutableSets == nil) {
+				_mutableSets = [[NSMutableDictionary alloc] init];
+			}
+			[_mutableSets setObject:working forKey:key];
+			[_changed setObject:working forKey:key];
+			[working release];
+			return;
+		}
 	}
 	[_changed setObject:(value != nil) ? value : (id)[NSNull null] forKey:key];
 }
@@ -269,8 +319,68 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 		}
 	}
 	[self willChangeValueForKey:key];
+	[self cd_maintainInverseForRelationship:key oldValue:[self primitiveValueForKey:key]];
 	[self setPrimitiveValue:value forKey:key];
+	[self cd_maintainInverseForRelationship:key newValue:value];
 	[self didChangeValueForKey:key];
+}
+
+/* THE OTHER SIDE OF A RELATIONSHIP IS UPDATED WHEN ONE SIDE IS SET, which is what makes the graph a graph rather
+ * than two independent edges. `_maintaining` stops the update from recursing: the reverse write calls this method
+ * again through `-setValue:forKey:`'s primitives, and only one direction should unlink first.
+ *
+ * A DELETED OR UNREGISTERED OBJECT IS NOT LINKED: an inverse pointing at an object the context has forgotten is the
+ * dangling reference the delete rules exist to prevent. */
+- (void)cd_maintainInverseForRelationship:(NSString *)key oldValue:(id)oldValue
+{
+	NSRelationshipDescription *relationship = [self cd_relationshipForKey:key];
+	NSRelationshipDescription *inverse;
+	NSArray *members;
+	NSUInteger i;
+
+	if (relationship == nil || (inverse = [relationship inverseRelationship]) == nil) {
+		return;
+	}
+	if (oldValue == nil) {
+		return;
+	}
+	members = [oldValue respondsToSelector:@selector(allObjects)]
+	    ? [oldValue allObjects] : [NSArray arrayWithObject:oldValue];
+	for (i = 0; i < [members count]; i++) {
+		id other = [members objectAtIndex:i];
+		if (![other isKindOfClass:[NSManagedObject class]] || other == self) { continue; }
+		if ([inverse isToMany]) {
+			[[other primitiveValueForKey:[inverse name]] removeObject:self];
+		} else if ([other primitiveValueForKey:[inverse name]] == self) {
+			[other setPrimitiveValue:nil forKey:[inverse name]];
+		}
+	}
+}
+
+- (void)cd_maintainInverseForRelationship:(NSString *)key newValue:(id)newValue
+{
+	NSRelationshipDescription *relationship = [self cd_relationshipForKey:key];
+	NSRelationshipDescription *inverse;
+	NSArray *members;
+	NSUInteger i;
+
+	if (relationship == nil || (inverse = [relationship inverseRelationship]) == nil) {
+		return;
+	}
+	if (newValue == nil) {
+		return;
+	}
+	members = [newValue respondsToSelector:@selector(allObjects)]
+	    ? [newValue allObjects] : [NSArray arrayWithObject:newValue];
+	for (i = 0; i < [members count]; i++) {
+		id other = [members objectAtIndex:i];
+		if (![other isKindOfClass:[NSManagedObject class]] || other == self) { continue; }
+		if ([inverse isToMany]) {
+			[[other primitiveValueForKey:[inverse name]] addObject:self];
+		} else {
+			[other setPrimitiveValue:self forKey:[inverse name]];
+		}
+	}
 }
 
 /* ---- the diff ------------------------------------------------------------------------------------ */
@@ -328,6 +438,10 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 	 * snapshot and a rollback that forgot everything. */
 	_committed = fresh;
 	[previous release];
+	/* THE WORKING COLLECTIONS ARE DERIVED, so they are dropped rather than merged: the next read rebuilds each one
+	 * from the snapshot that was just installed. */
+	[_mutableSets release];
+	_mutableSets = nil;
 	(void)i;
 	/* A SAVE CLEARS THE DIFF AFTER ADOPTING IT: what was changed is now what the store holds. */
 	[_changed release];

@@ -347,6 +347,16 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 				value = [NSNumber numberWithDouble:sqlite3_column_double(statement, 6)];
 			} else if ([type isEqualToString:@"date"]) {
 				value = [NSDate dateWithTimeIntervalSinceReferenceDate:sqlite3_column_double(statement, 6)];
+			} else if ([type isEqualToString:@"array"]) {
+				const void *bytes = sqlite3_column_blob(statement, 8);
+				int length = sqlite3_column_bytes(statement, 8);
+				if (bytes != NULL && length > 0) {
+					NSData *blob = [[NSData alloc] initWithBytes:bytes length:(NSUInteger)length];
+					value = [NSPropertyListSerialization propertyListWithData:blob
+					                                                 options:NSPropertyListImmutable
+					                                                  format:NULL error:NULL];
+					[blob release];
+				}
 			} else if ([type isEqualToString:@"blob"]) {
 				const void *bytes = sqlite3_column_blob(statement, 8);
 				int length = sqlite3_column_bytes(statement, 8);
@@ -386,6 +396,11 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 		type = "date";
 	} else if ([value isKindOfClass:[NSData class]]) {
 		type = "blob";
+	} else if ([value isKindOfClass:[NSArray class]] || [value isKindOfClass:[NSSet class]]) {
+		/* A TO-MANY RELATIONSHIP ARRIVES HERE AS AN ARRAY OF REFERENCES, and an array has no scalar column: it is
+		 * written as a property-list blob under its own type rather than being joined into a string, so the
+		 * structure survives and the type column still says what the value is. */
+		type = "array";
 	}
 
 	if (sqlite3_prepare_v2((sqlite3 *)_db,
@@ -408,6 +423,15 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 		sqlite3_bind_double(statement, 6, [value timeIntervalSinceReferenceDate]);
 	} else if (strcmp(type, "blob") == 0) {
 		sqlite3_bind_blob(statement, 8, [value bytes], (int)[value length], SQLITE_TRANSIENT);
+	} else if (strcmp(type, "array") == 0) {
+		NSArray *members = [value respondsToSelector:@selector(allObjects)]
+		    ? [value allObjects] : value;
+		NSData *blob = [NSPropertyListSerialization dataWithPropertyList:members
+		                                                          format:NSPropertyListXMLFormat_v1_0
+		                                                         options:0 error:NULL];
+		if (blob != nil) {
+			sqlite3_bind_blob(statement, 8, [blob bytes], (int)[blob length], SQLITE_TRANSIENT);
+		}
 	} else {
 		sqlite3_bind_text(statement, 7, [value UTF8String], -1, SQLITE_TRANSIENT);
 	}

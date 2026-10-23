@@ -54,6 +54,7 @@ enum {
 	NSManagedObjectContext *_context;	/* NOT retained: the context owns the registered objects */
 	NSMutableDictionary *_committed;	/* the last values the store is known to hold */
 	NSMutableDictionary *_changed;		/* the diff, or nil when there is none */
+	NSMutableDictionary *_mutableSets;	/* to-many relationship values, kept mutable so they can be added to */
 	id _observationInfo;
 	BOOL _inserted;
 	BOOL _deleted;

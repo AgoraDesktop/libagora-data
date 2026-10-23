@@ -173,6 +173,72 @@ int main(void)
 	CHECK([NSManagedObject contextShouldIgnoreUnmodeledPropertyChanges] == NO,
 	      "unmodelled property changes are not ignored by default");
 
+	/* 11. THE INVERSE IS MAINTAINED WHEN ONE SIDE IS SET, which is what makes the graph a graph */
+	{
+		NSManagedObjectModel *model = [[[NSManagedObjectModel alloc] init] autorelease];
+		NSEntityDescription *departmentEntity = [[[NSEntityDescription alloc] init] autorelease];
+		NSEntityDescription *staffEntity = [[[NSEntityDescription alloc] init] autorelease];
+		NSRelationshipDescription *people = [[[NSRelationshipDescription alloc] init] autorelease];
+		NSRelationshipDescription *dept = [[[NSRelationshipDescription alloc] init] autorelease];
+		NSRelationshipDescription *head = [[[NSRelationshipDescription alloc] init] autorelease];
+		NSRelationshipDescription *headOf = [[[NSRelationshipDescription alloc] init] autorelease];
+		NSManagedObject *engineering;
+		NSManagedObject *worker;
+		NSManagedObject *boss;
+		NSManagedObject *other;
+
+		[people setName:@"people"];
+		[people setMaxCount:0];
+		[people setDestinationEntity:staffEntity];
+		[dept setName:@"dept"];
+		[dept setDestinationEntity:departmentEntity];
+		[dept setInverseRelationship:people];
+		[head setName:@"head"];
+		[head setDestinationEntity:staffEntity];
+		[headOf setName:@"headOf"];
+		[headOf setDestinationEntity:departmentEntity];
+		[head setInverseRelationship:headOf];
+
+		[departmentEntity setName:@"Department"];
+		[departmentEntity setProperties:[NSArray arrayWithObjects:people, head, nil]];
+		[staffEntity setName:@"Employee"];
+		[staffEntity setProperties:[NSArray arrayWithObjects:dept, headOf, nil]];
+		[model setEntities:[NSArray arrayWithObjects:departmentEntity, staffEntity, nil]];
+
+		engineering = [[[NSManagedObject alloc] initWithEntity:departmentEntity
+		                              insertIntoManagedObjectContext:nil] autorelease];
+		worker = [[[NSManagedObject alloc] initWithEntity:staffEntity
+		                          insertIntoManagedObjectContext:nil] autorelease];
+		boss = [[[NSManagedObject alloc] initWithEntity:staffEntity
+		                        insertIntoManagedObjectContext:nil] autorelease];
+		other = [[[NSManagedObject alloc] initWithEntity:staffEntity
+		                         insertIntoManagedObjectContext:nil] autorelease];
+
+		/* to-one set, to-many updated */
+		[worker setValue:engineering forKey:@"dept"];
+		CHECK([[engineering valueForKey:@"people"] containsObject:worker],
+		      "setting the to-one adds to the inverse to-many");
+		CHECK([[worker valueForKey:@"dept"] isEqual:engineering], "and the to-one holds what was set");
+
+		/* to-many set, to-one updated */
+		[engineering setValue:[NSSet setWithObject:other] forKey:@"people"];
+		CHECK([[other valueForKey:@"dept"] isEqual:engineering], "setting the to-many updates the inverse to-one");
+		CHECK(![[engineering valueForKey:@"people"] containsObject:worker],
+		      "and replaces the membership rather than adding to it");
+
+		/* to-one to to-one */
+		[engineering setValue:boss forKey:@"head"];
+		CHECK([[boss valueForKey:@"headOf"] isEqual:engineering], "a to-one inverse is set from the other side");
+
+		/* unlink */
+		[engineering setValue:[NSSet set] forKey:@"people"];
+		CHECK([other valueForKey:@"dept"] == nil, "removing a member clears its to-one");
+
+		/* the to-many value is a real mutable collection */
+		[[engineering valueForKey:@"people"] addObject:worker];
+		CHECK([[engineering valueForKey:@"people"] count] == 1, "the to-many value can be added to directly");
+	}
+
 	[person release];
 	printf("object: %d checks, %d failure(s)\n", checks, failures);
 	[pool release];

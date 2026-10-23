@@ -43,17 +43,25 @@ CREATE TABLE agora_value (
     entity_id  INTEGER NOT NULL,
     object_key INTEGER NOT NULL,
     name       TEXT NOT NULL,
-    type       TEXT NOT NULL,     -- 'string' | 'integer' | 'real' | 'blob' | 'date'
+    type       TEXT NOT NULL,     -- 'string' | 'integer' | 'real' | 'blob' | 'date' | 'array'
     ival       INTEGER,           -- type = 'integer'
     rval       REAL,              -- type = 'real', and 'date' as a reference-date interval
     tval       TEXT,              -- type = 'string'
-    bval       BLOB,              -- type = 'blob'
+    bval       BLOB,              -- type = 'blob', and 'array' as a property-list blob of references
     PRIMARY KEY (entity_id, object_key, name),
     FOREIGN KEY (entity_id, object_key) REFERENCES agora_object(entity_id, object_key)
 );
 
 CREATE INDEX agora_value_by_name ON agora_value (name);
 ```
+
+### `array` is a to-many relationship, and it is still a list of references
+
+A to-many relationship's value is an **array of object-URI strings** (`x-coredata://…`), and an array has no scalar
+column. It is written as a property-list blob under `type = 'array'` rather than joined into a comma-separated
+string: the structure survives, the type column still says what the value is, and the coordinator resolves the
+references back into objects when a fault fires. A store that joined them would lose the quoting rule the first time
+an entity name contained a comma.
 
 ### Why the values are typed columns and not one opaque blob
 
