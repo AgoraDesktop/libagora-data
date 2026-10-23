@@ -11,24 +11,27 @@
 #
 # W1 (2026-10-23): 7 of 21 classes, 99 of 99 offered selectors.
 # W2 (2026-10-23): 9 of 21 classes, 140 of 140. +NSManagedObject (37), NSManagedObjectID (4).
-# W3 (2026-10-23): 10 of 21 classes, 179 of 179. +NSManagedObjectContext (39); classes-missing 11.
-#                  W3's selectors are answered with a store behind a protocol, so a fetch and a permanent-ID
-#                  request REFUSE by name until W4 rather than pretending — the behaviour tests say which.
+# W3 (2026-10-23): 10 of 21 classes, 179 of 179. +NSManagedObjectContext (39).
+# W4 (2026-10-23): 14 of 21 classes, 238 of 238. +NSPersistentStore (19), NSAtomicStore (12),
+#                  NSAtomicStoreCacheNode (6), NSPersistentStoreCoordinator (22). classes-missing 7,
+#                  which are W5's fetch pair and W6's five migration classes.
 
-classes-missing 11
+classes-missing 7
 classes-offered 21
-classes-present 10
+classes-present 14
 functions-declared 0
 functions-declared-not-defined 0
 functions-defined-not-declared 0
 functions-missing 0
 functions-offered 0
 functions-present 0
-methods-declared 201
+methods-declared 262
 methods-declared-not-implemented 0
 protocols-missing 0
 protocols-offered 0
 protocols-present 0
+sel:NSAtomicStore 12
+sel:NSAtomicStoreCacheNode 6
 sel:NSAttributeDescription 9
 sel:NSEntityDescription 27
 sel:NSExpressionDescription 4
@@ -37,8 +40,10 @@ sel:NSManagedObject 37
 sel:NSManagedObjectContext 39
 sel:NSManagedObjectID 4
 sel:NSManagedObjectModel 22
+sel:NSPersistentStore 19
+sel:NSPersistentStoreCoordinator 21
 sel:NSPropertyDescription 23
 sel:NSRelationshipDescription 12
-selectors-missing 0
-selectors-offered 179
-selectors-present 179
+selectors-missing 1
+selectors-offered 238
+selectors-present 237

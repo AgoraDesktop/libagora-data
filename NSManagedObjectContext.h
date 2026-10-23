@@ -156,6 +156,7 @@ COREDATA_EXTERN id NSRollbackMergePolicy;
 - (void)cd_objectDidChange:(NSManagedObject *)object;
 - (NSUndoManager *)cd_undoManagerIfAny;
 - (BOOL)cd_isUndoing;
+- (void)cd_rekeyRegisteredObjects;
 @end
 
 #endif /* COREDATA_NSMANAGEDOBJECTCONTEXT_H */

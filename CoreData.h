@@ -40,4 +40,10 @@
 /* W3 — the unit of work. */
 #import <CoreData/NSManagedObjectContext.h>
 
+/* W4 — the stores and the coordinator. */
+#import <CoreData/NSPersistentStore.h>
+#import <CoreData/NSAtomicStoreCacheNode.h>
+#import <CoreData/NSAtomicStore.h>
+#import <CoreData/NSPersistentStoreCoordinator.h>
+
 #endif /* COREDATA_COREDATA_H */

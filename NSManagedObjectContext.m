@@ -197,6 +197,23 @@ static NSError *CDError(NSInteger code, NSString *why)
 }
 
 - (NSUndoManager *)cd_undoManagerIfAny { return _undoManager; }
+
+- (void)cd_rekeyRegisteredObjects
+{
+	NSArray *objects = [_registered allValues];
+	NSUInteger i;
+
+	/* A SAVE REPLACES TEMPORARY IDS WITH PERMANENT ONES, so the registry's keys go stale the moment the store
+	 * names a row. Rebuilding from the objects' current IDs is cheaper than tracking each rename, and it is the
+	 * only place the mapping is allowed to change. */
+	[_registered removeAllObjects];
+	for (i = 0; i < [objects count]; i++) {
+		NSManagedObject *object = [objects objectAtIndex:i];
+		if ([object managedObjectContext] == self) {
+			[_registered setObject:object forKey:[object objectID]];
+		}
+	}
+}
 - (BOOL)cd_isUndoing { return _undoing; }
 
 /* ---- registration -------------------------------------------------------------------------------- */
@@ -644,6 +661,7 @@ static NSError *CDError(NSInteger code, NSString *why)
 			[self unlock];
 			return NO;
 		}
+		[self cd_rekeyRegisteredObjects];
 	} else {
 		/* IN-MEMORY (documented in the header): adopt the diff, so the object graph believes the save happened.
 		 * No durability is claimed and W4 replaces this branch with the store's round trip. */

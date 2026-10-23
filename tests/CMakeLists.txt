@@ -72,3 +72,11 @@ target_link_libraries(context PRIVATE Data CoreFoundation::CoreFoundation objc p
 
 add_test(NAME context COMMAND context)
 set_tests_properties(context PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# W4's gate: the registry, the metadata, and the save round trip — including the two-context fault, which is the
+# first test in this plan where a permanent object ID means something.
+add_executable(store store.m)
+target_link_libraries(store PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME store COMMAND store)
+set_tests_properties(store PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
