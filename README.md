@@ -11,11 +11,17 @@ directory (`../README.md`). `libagora-data` sits on `libagora-base` (Foundation)
 
 ## Provenance
 
-Not an import. There is no Core Data in the Fiwix tree this stack's Foundation came from, and the only Core
-Data implementation in this repository's neighbourhood is the Cocotron corpus under `audit/corpus/`, which is
-a **reading aid**: 21 files and ~3,350 lines with no SQLite store and `NSLog(@"… not implemented")` for nine
-of the attribute types. `COREDATA-PLAN.md` in the parent repository says what it is worth — a checklist of the
-traps, not a base to build on.
+Not an import. There is no Core Data in the Fiwix tree this stack's Foundation came from.
+
+**No Cocotron or GNUstep source is stored here, or in `Agora`, or in any repository of this project.** The
+comparison trees the provenance audit reads are **not committed anywhere**: `audit/audit.py setup` clones them
+at pinned revisions into `audit/corpus/`, which `audit/.gitignore` excludes, and `audit/README.md` records the
+SHAs. They exist on a developer's disk to be fingerprinted and are deleted by deleting a directory.
+
+That matters to this component only as a reading aid, and a thin one: Cocotron's Core Data is 21 files and
+~3,350 lines with **no SQLite store at all** and `NSLog(@"… not implemented")` for nine of the attribute
+types, so it is a checklist of the traps rather than a base to build on. It is read where it is pinned; it is
+never copied in. `COREDATA-PLAN.md` in the parent repository says the same thing in its §7.3.
 
 The reference is `MacOSX10.6.sdk`. The surface is **21 classes, 331 selectors, 24 headers, 56 constants, 0
 protocols, 0 C functions**, generated into [`api/10.6/coredata-manifest.txt`](api/10.6/coredata-manifest.txt)
