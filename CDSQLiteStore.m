@@ -26,6 +26,7 @@
 #import <CoreData/NSAtomicStoreCacheNode.h>
 #import <CoreData/NSManagedObjectID.h>
 #import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSFetchRequest.h>
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/CoreDataErrors.h>
 #import <CoreData/CDModelPrivate.h>
@@ -39,7 +40,10 @@
 #import <Foundation/NSURL.h>
 #import <Foundation/NSError.h>
 #include <sqlite3.h>
+#import <CoreData/CDSQLPredicate.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 static NSString *const CDSQLiteMetadataTable = @"agora_metadata";
 
@@ -377,6 +381,67 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 		[node release];
 	}
 	return YES;
+}
+
+/* ---- the query path (§8): a count the SQL answers, not a scan ---- */
+
+- (NSInteger)cd_countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error
+{
+	NSEntityDescription *entity = [request entity];
+	NSMutableArray *bindings;
+	NSString *where;
+	NSMutableString *sql;
+	sqlite3_stmt *statement = NULL;
+	NSInteger count = -1;
+	NSUInteger i;
+
+	if (entity == nil) {
+		return -1;
+	}
+	bindings = [[NSMutableArray alloc] init];
+	where = CDSQLTranslatePredicate([request predicate], entity, bindings);
+	if (where == nil) {
+		/* UNTRANSLATABLE: -1 TELLS THE CALLER TO SCAN. A wrong answer would be worse than a slow one. */
+		[bindings release];
+		return -1;
+	}
+	if (![self cd_openCreating:NO error:error]) {
+		[bindings release];
+		return -1;
+	}
+	sql = [NSMutableString stringWithFormat:
+	       @"SELECT COUNT(*) FROM agora_object o JOIN agora_entity e ON e.id = o.entity_id"
+	        " WHERE e.name = ? AND (%@)", where];
+	if (getenv("CD_SQL") != NULL) {
+		fprintf(stderr, "    SQL: %s\n    bindings: %s\n", [sql UTF8String],
+		        [[bindings description] UTF8String]);
+	}
+	if (sqlite3_prepare_v2((sqlite3 *)_db, [sql UTF8String], -1, &statement, NULL) != SQLITE_OK) {
+		[bindings release];
+		return -1;
+	}
+	sqlite3_bind_text(statement, 1, [[entity name] UTF8String], -1, SQLITE_TRANSIENT);
+	for (i = 0; i < [bindings count]; i++) {
+		id value = [bindings objectAtIndex:i];
+
+		if ([value isKindOfClass:[NSString class]]) {
+			sqlite3_bind_text(statement, (int)(i + 2), [value UTF8String], -1, SQLITE_TRANSIENT);
+		} else if ([value isKindOfClass:[NSNumber class]]) {
+			sqlite3_bind_double(statement, (int)(i + 2), [value doubleValue]);
+		} else if ([value isKindOfClass:[NSData class]]) {
+			sqlite3_bind_blob(statement, (int)(i + 2), [value bytes], (int)[value length], SQLITE_TRANSIENT);
+		} else {
+			sqlite3_finalize(statement);
+			[bindings release];
+			return -1;
+		}
+	}
+	if (sqlite3_step(statement) == SQLITE_ROW) {
+		count = (NSInteger)sqlite3_column_int64(statement, 0);
+	}
+	sqlite3_finalize(statement);
+	[bindings release];
+	return count;
 }
 
 /* ---- save ---------------------------------------------------------------------------------------- */

@@ -753,8 +753,23 @@ static NSError *CDError(NSInteger code, NSString *why)
 
 - (NSUInteger)countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error
 {
-	NSArray *results = [self executeFetchRequest:request error:error];
-	return (results == nil) ? NSNotFound : [results count];
+	/* THE STORE IS ASKED FIRST (§8). A count is the one door where the answer can come from SQL without any object
+	 * ever existing, and on a 10^5-row file that is the difference between one query and 10^5 faults. A store that
+	 * cannot translate answers -1 and the scan below is the reference it is measured against. */
+	if ([(id<CDStoreDoors>)_coordinator respondsToSelector:
+	     @selector(cd_countForFetchRequest:inContext:error:)]) {
+		NSInteger counted = [(id<CDStoreDoors>)_coordinator cd_countForFetchRequest:request
+		                                                                 inContext:self
+		                                                                     error:error];
+		if (counted >= 0) {
+			return (NSUInteger)counted;
+		}
+	}
+	{
+		NSArray *results = [self executeFetchRequest:request error:error];
+
+		return (results == nil) ? NSNotFound : [results count];
+	}
 }
 
 /* ---- assignment, policy and the 10.6 properties ---------------------------------------------------- */

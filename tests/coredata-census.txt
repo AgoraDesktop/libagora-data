@@ -10,11 +10,11 @@
 # a declaration is not a door.
 #
 # W1..W6: the declared surface, complete at 21 of 21 classes and 331 of 331 selectors.
-# W7: store types. W7b: relationships. W7c: routing. W7d: scale (three quadratics fixed in Foundation).
-# W7e (§0.13): merge sort, and NSNotEqualTo's infinite recursion.
-# W7f (§0.14): the .momd/.mom/.cdm readers — bundle discovery, no new selectors, one fewer refusal.
-#              21 of 21 and 331 of 331 still, because `+mergedModelFromBundles:` was already on the manifest: it
-#              now LOOKS rather than refusing, and a census cannot see that either.
+# W7: store types. W7b: relationships. W7c: routing. W7d: scale. W7e: merge sort + NSNotEqualTo's recursion.
+# W7f: the .momd/.mom/.cdm readers.
+# W7g (§0.15): predicate-to-SQL pushdown — the count door is answered by SQLite now, with the scan as the reference
+#     it is measured against. methods-declared rose with CDSQLPredicate and the store's query door; the manifest
+#     selectors are unchanged, because the translation lives behind `-countForFetchRequest:error:`.
 
 classes-missing 0
 classes-offered 21
@@ -25,7 +25,7 @@ functions-defined-not-declared 0
 functions-missing 0
 functions-offered 0
 functions-present 0
-methods-declared 364
+methods-declared 365
 methods-declared-not-implemented 0
 protocols-missing 0
 protocols-offered 0

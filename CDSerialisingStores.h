@@ -42,4 +42,13 @@
 }
 @end
 
+@class NSFetchRequest;
+@class NSError;
+
+@interface CDSQLiteStore (CDQuery)
+/* The count a fetch would return, computed by SQL — or -1 when the predicate cannot be translated, in which case
+ * the caller falls back to the in-memory scan (§8.4). */
+- (NSInteger)cd_countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
+@end
+
 #endif /* COREDATA_CDSERIALISINGSTORES_H */

@@ -126,3 +126,10 @@ target_link_libraries(bundles PRIVATE Data CoreFoundation::CoreFoundation objc)
 
 add_test(NAME bundles COMMAND bundles)
 set_tests_properties(bundles PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# §8: predicate-to-SQL pushdown, held to the in-memory scan it replaces.
+add_executable(pushdown pushdown.m)
+target_link_libraries(pushdown PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME pushdown COMMAND pushdown)
+set_tests_properties(pushdown PROPERTIES ENVIRONMENT "${_agora_data_test_env}")

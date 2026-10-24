@@ -650,6 +650,27 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	return YES;
 }
 
+- (NSInteger)cd_countForFetchRequest:(NSFetchRequest *)request
+                           inContext:(NSManagedObjectContext *)context
+                               error:(NSError **)error
+{
+	NSPersistentStore *store = ([_stores count] == 1) ? [_stores objectAtIndex:0] : nil;
+
+	/* -1 MEANS "SCAN", and there are three reasons to say it: more than one store (the count would be of one file),
+	 * a request scoped to stores this coordinator does not own, or PENDING CHANGES — which SQL cannot see and the
+	 * scan can (§8.1). */
+	if (store == nil || ![[request affectedStores] count] == 0) {
+		return -1;
+	}
+	if ([[context insertedObjects] count] > 0 || [context hasChanges]) {
+		return -1;
+	}
+	if (![store isKindOfClass:[CDSQLiteStore class]]) {
+		return -1;
+	}
+	return [(CDSQLiteStore *)store cd_countForFetchRequest:request error:error];
+}
+
 - (id)cd_executeFetchRequest:(NSFetchRequest *)request
                    inContext:(NSManagedObjectContext *)context
                        error:(NSError **)error

@@ -95,6 +95,10 @@ NSString *CDHexOfData(NSData *data);
                    inContext:(NSManagedObjectContext *)context
                        error:(NSError **)error;
 - (void)cd_faultObject:(NSManagedObject *)object inContext:(NSManagedObjectContext *)context;
+/* The count a fetch would produce, computed by the store when it can — or -1 when the caller must scan (§8). */
+- (NSInteger)cd_countForFetchRequest:(NSFetchRequest *)request
+                           inContext:(NSManagedObjectContext *)context
+                               error:(NSError **)error;
 @end
 
 @interface NSManagedObject (CDPrivate)
