@@ -77,4 +77,11 @@
 
 @end
 
+/* THE MODEL DIRECTORY (§0.14). A `.momd` is a DIRECTORY: one `.mom` per version and a `VersionInfo.plist` naming
+ * the current one. The doors are private because Apple's are, and because what a caller wants is a model, not a
+ * directory listing. */
+@interface NSManagedObjectModel (CDPrivate)
++ (NSManagedObjectModel *)cd_modelWithContentsOfURL:(NSURL *)url error:(NSError **)error;
+@end
+
 #endif /* COREDATA_NSMANAGEDOBJECTMODEL_H */

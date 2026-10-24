@@ -179,11 +179,11 @@ int main(void)
 		[manager release];
 	}
 
-	/* 4. the doors that are not ready refuse by name */
-	CHECK(Raises(^{ (void)[NSMappingModel mappingModelFromBundles:nil
-	                                              forSourceModel:v1
-	                                           destinationModel:v2]; }) == YES,
-	      "+mappingModelFromBundles: refuses (no .cdm reader yet)");
+	/* 4. A DOOR THAT WAS A REFUSAL AND IS NOW A SEARCH. It returns nil when no `.cdm` in the bundles fits the two
+	 * models, which is Apple's contract — and the assertion had to change with it rather than the refusal being
+	 * kept to satisfy an old test (§0.14). `tests/bundles.m` measures the found case. */
+	CHECK([NSMappingModel mappingModelFromBundles:nil forSourceModel:v1 destinationModel:v2] == nil,
+	      "+mappingModelFromBundles: answers nil when no .cdm fits the two models");
 
 	/* 5. a mapping model built by hand, and the property mapping's own doors */
 	{

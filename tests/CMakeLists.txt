@@ -119,3 +119,10 @@ set_tests_properties(scale PROPERTIES ENVIRONMENT "${_agora_data_test_env}" TIME
 
 add_executable(bench bench.m)
 target_link_libraries(bench PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+# §0.14: the .momd / .mom / .cdm readers, found through a bundle.
+add_executable(bundles bundles.m)
+target_link_libraries(bundles PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME bundles COMMAND bundles)
+set_tests_properties(bundles PROPERTIES ENVIRONMENT "${_agora_data_test_env}")

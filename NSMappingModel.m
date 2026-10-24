@@ -30,6 +30,8 @@
 #import <Foundation/NSKeyedArchiver.h>
 #import <Foundation/NSError.h>
 #import <Foundation/NSException.h>
+#import <Foundation/NSBundle.h>
+#import <Foundation/NSURL.h>
 
 static NSError *CDMappingError(NSInteger code, NSString *why)
 {
@@ -76,12 +78,53 @@ static NSError *CDMappingError(NSInteger code, NSString *why)
                              forSourceModel:(NSManagedObjectModel *)sourceModel
                           destinationModel:(NSManagedObjectModel *)destinationModel
 {
-	(void)bundles; (void)sourceModel; (void)destinationModel;
-	/* REFUSED BY NAME, for `+mergedModelFromBundles:`'s reason: no `.cdm` reader exists, and an empty mapping
-	 * model returned "successfully" would delete nothing, copy nothing, and report success. */
-	[NSException raise:NSInvalidArgumentException
-	            format:@"NSMappingModel: +mappingModelFromBundles: needs a compiled .cdm reader, which this tree "
-	                   @"does not have yet; infer one or build it in code"];
+	NSDictionary *sourceEntities;
+	NSDictionary *destinationEntities;
+	NSUInteger i, b;
+
+	/* EVERY `.cdm` IN EVERY BUNDLE, and the FIRST ONE THAT FITS BOTH MODELS. A mapping model names the entities it
+	 * was written for; one whose names are not in these models is a model for a different pair of versions, and
+	 * returning it would migrate by guess. `bundles` nil means the main bundle, which is Apple's contract. */
+	if (bundles == nil) {
+		bundles = [NSArray arrayWithObject:[NSBundle mainBundle]];
+	}
+	sourceEntities = (sourceModel != nil) ? [sourceModel entitiesByName] : nil;
+	destinationEntities = (destinationModel != nil) ? [destinationModel entitiesByName] : nil;
+
+	for (b = 0; b < [bundles count]; b++) {
+		NSArray *paths = [[bundles objectAtIndex:b] pathsForResourcesOfType:@"cdm" inDirectory:nil];
+
+		for (i = 0; i < [paths count]; i++) {
+			NSMappingModel *candidate = [[NSMappingModel alloc]
+			                             initWithContentsOfURL:[NSURL fileURLWithPath:[paths objectAtIndex:i]]];
+			BOOL fits = [candidate isKindOfClass:[NSMappingModel class]];
+
+			[candidate autorelease];
+			if (!fits || [[candidate entityMappings] count] == 0) {
+				continue;
+			}
+			{
+				NSArray *mappings = [candidate entityMappings];
+				NSUInteger m;
+
+				for (m = 0; fits && m < [mappings count]; m++) {
+					NSEntityMapping *mapping = [mappings objectAtIndex:m];
+
+					if ([mapping sourceEntityName] != nil && sourceEntities != nil &&
+					    [sourceEntities objectForKey:[mapping sourceEntityName]] == nil) {
+						fits = NO;
+					}
+					if ([mapping destinationEntityName] != nil && destinationEntities != nil &&
+					    [destinationEntities objectForKey:[mapping destinationEntityName]] == nil) {
+						fits = NO;
+					}
+				}
+			}
+			if (fits) {
+				return candidate;
+			}
+		}
+	}
 	return nil;
 }
 

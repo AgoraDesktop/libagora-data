@@ -6,6 +6,7 @@
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSEntityDescription.h>
 #import <CoreData/NSPropertyDescription.h>
+#import <CoreData/CoreDataErrors.h>
 #import <CoreData/CDModelPrivate.h>
 #import <Foundation/NSString.h>
 #import <Foundation/NSArray.h>
@@ -17,10 +18,19 @@
 
 #import <Foundation/NSCoder.h>
 #import <Foundation/NSException.h>
+#import <Foundation/NSFileManager.h>
+#import <Foundation/NSBundle.h>
+#import <Foundation/NSPropertyListSerialization.h>
 
 /* THE METADATA KEY IS NSPersistentStore.h's, which is W4's file; naming it here as a literal keeps W1 from
  * depending on a header it does not have yet, and the literal is the one Apple documents. */
 static NSString *const CDModelVersionHashesKey = @"NSStoreModelVersionHashes";
+
+static NSError *CDModelError(NSInteger code, NSString *why)
+{
+	return [NSError errorWithDomain:@"NSCocoaErrorDomain" code:code
+	                      userInfo:[NSDictionary dictionaryWithObject:why forKey:@"reason"]];
+}
 
 @implementation NSManagedObjectModel
 
@@ -37,22 +47,110 @@ static NSString *const CDModelVersionHashesKey = @"NSStoreModelVersionHashes";
 	return self;
 }
 
+/* A `.momd` IS A DIRECTORY: `VersionInfo.plist` names the current version, and `<version>.mom` is it. Without a
+ * VersionInfo — which is what a hand-built directory looks like — every `.mom` in it is loaded and merged, because a
+ * caller asking for a directory wants the model it describes and not an error about a missing plist. */
++ (NSManagedObjectModel *)cd_modelWithContentsOfURL:(NSURL *)url error:(NSError **)error
+{
+	NSString *path = [url path];
+	NSDictionary *attributes;
+	BOOL isDirectory = NO;
+
+	if (path == nil) {
+		if (error != NULL) {
+			*error = CDModelError(NSMigrationMissingSourceModelError, @"no URL");
+		}
+		return nil;
+	}
+	attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:NULL];
+	(void)attributes;
+	if ([[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&isDirectory] && isDirectory) {
+		NSData *info = [NSData dataWithContentsOfFile:
+		                [path stringByAppendingPathComponent:@"VersionInfo.plist"]];
+		NSString *current = nil;
+
+		if (info != nil) {
+			id plist = [NSPropertyListSerialization propertyListWithData:info
+			                                                     options:NSPropertyListImmutable
+			                                                      format:NULL error:NULL];
+			if ([plist isKindOfClass:[NSDictionary class]]) {
+				current = [plist objectForKey:@"NSManagedObjectModel_CurrentVersionName"];
+			}
+		}
+		if (current != nil) {
+			return [self cd_modelWithContentsOfURL:
+			        [NSURL fileURLWithPath:[[path stringByAppendingPathComponent:current]
+			                                stringByAppendingPathExtension:@"mom"]]
+			                                 error:error];
+		}
+		{
+			/* EVERY `.mom` IN THE DIRECTORY, MERGED. */
+			NSArray *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:path error:NULL];
+			NSMutableArray *models = [[NSMutableArray alloc] init];
+			NSUInteger i;
+
+			for (i = 0; i < [entries count]; i++) {
+				NSString *entry = [entries objectAtIndex:i];
+
+				if (![[entry pathExtension] isEqualToString:@"mom"]) {
+					continue;
+				}
+				{
+					NSManagedObjectModel *one =
+					    [self cd_modelWithContentsOfURL:
+					     [NSURL fileURLWithPath:[path stringByAppendingPathComponent:entry]] error:error];
+					if (one != nil) { [models addObject:one]; }
+				}
+			}
+			if ([models count] == 0) {
+				[models release];
+				if (error != NULL) {
+					*error = CDModelError(NSMigrationMissingSourceModelError,
+					                      @"the model directory holds no .mom");
+				}
+				return nil;
+			}
+			{
+				NSManagedObjectModel *merged = [NSManagedObjectModel modelByMergingModels:models];
+				[models release];
+				return merged;
+			}
+		}
+	}
+
+	{
+		NSData *data = [NSData dataWithContentsOfFile:path];
+		id decoded;
+
+		if (data == nil) {
+			if (error != NULL) {
+				*error = CDModelError(NSMigrationMissingSourceModelError,
+				                      [NSString stringWithFormat:@"nothing readable at %@", path]);
+			}
+			return nil;
+		}
+		decoded = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+		if (![decoded isKindOfClass:[NSManagedObjectModel class]]) {
+			if (error != NULL) {
+				*error = CDModelError(NSMigrationMissingSourceModelError,
+				                      [NSString stringWithFormat:@"%@ is not an archived model", path]);
+			}
+			return nil;
+		}
+		return decoded;
+	}
+}
+
 - (id)initWithContentsOfURL:(NSURL *)url
 {
-	NSData *data = (url != nil) ? [NSData dataWithContentsOfURL:url] : nil;
-	id decoded = nil;
+	NSManagedObjectModel *model = [NSManagedObjectModel cd_modelWithContentsOfURL:url error:NULL];
 
-	if (data == nil) {
+	if (model == nil) {
 		[NSException raise:NSInvalidArgumentException
 		            format:@"NSManagedObjectModel: nothing readable at %@", url];
 	}
-	decoded = [NSKeyedUnarchiver unarchiveObjectWithData:data];
-	if (![decoded isKindOfClass:[NSManagedObjectModel class]]) {
-		[NSException raise:NSInvalidArgumentException
-		            format:@"NSManagedObjectModel: %@ is not an archived model", url];
-	}
 	[self release];
-	return [decoded retain];
+	return [model retain];
 }
 
 - (void)dealloc
@@ -111,13 +209,44 @@ static NSString *const CDModelVersionHashesKey = @"NSStoreModelVersionHashes";
 
 + (NSManagedObjectModel *)mergedModelFromBundles:(NSArray *)bundles
 {
-	(void)bundles;
-	/* REFUSED BY NAME (§4.3): there is no `.mom`/`.momd` reader in this tree, so there is nothing to find. An
-	 * empty model returned "successfully" would make every later failure a mystery. */
-	[NSException raise:NSInvalidArgumentException
-	            format:@"NSManagedObjectModel: +mergedModelFromBundles: needs a compiled model reader (.momd), "
-	                   @"which this tree does not have yet; build the model in code or archive one"];
-	return nil;
+	NSMutableArray *models = [[NSMutableArray alloc] init];
+	NSManagedObjectModel *merged;
+	NSUInteger i;
+
+	/* EVERY `.momd` AND `.mom` IN EVERY BUNDLE, merged. `bundles` nil means the main bundle, which is Apple's
+	 * contract and the common call. */
+	if (bundles == nil) {
+		bundles = [NSArray arrayWithObject:[NSBundle mainBundle]];
+	}
+	for (i = 0; i < [bundles count]; i++) {
+		NSBundle *bundle = [bundles objectAtIndex:i];
+		NSArray *extensions = [NSArray arrayWithObjects:@"momd", @"mom", nil];
+		NSUInteger e;
+
+		for (e = 0; e < [extensions count]; e++) {
+			NSArray *paths = [bundle pathsForResourcesOfType:[extensions objectAtIndex:e]
+			                                     inDirectory:nil];
+			NSUInteger p;
+
+			for (p = 0; p < [paths count]; p++) {
+				NSManagedObjectModel *one =
+				    [self cd_modelWithContentsOfURL:
+				     [NSURL fileURLWithPath:[paths objectAtIndex:p]] error:NULL];
+				if (one != nil) { [models addObject:one]; }
+			}
+		}
+	}
+	if ([models count] == 0) {
+		[models release];
+		/* AN EMPTY MODEL RETURNED "SUCCESSFULLY" IS THE FAILURE THIS REFUSAL PREVENTS: nothing was found, and a
+		 * caller that proceeded would migrate nothing and report success. */
+		[NSException raise:NSInvalidArgumentException
+		            format:@"NSManagedObjectModel: +mergedModelFromBundles: found no .momd or .mom in %lu bundle(s)",
+		                   (unsigned long)[bundles count]];
+	}
+	merged = [self modelByMergingModels:models];
+	[models release];
+	return merged;
 }
 
 + (NSManagedObjectModel *)mergedModelFromBundles:(NSArray *)bundles
