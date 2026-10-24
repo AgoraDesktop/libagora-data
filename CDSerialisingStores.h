@@ -49,6 +49,10 @@
 /* The count a fetch would return, computed by SQL — or -1 when the predicate cannot be translated, in which case
  * the caller falls back to the in-memory scan (§8.4). */
 - (NSInteger)cd_countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
+
+/* THE FETCH DOOR (§8): the object IDs the WHERE selects, read by SQL, so only matching rows are ever built. nil
+ * means "scan instead" — an untranslatable predicate, or a request this store cannot answer alone. */
+- (NSArray *)cd_objectIDsForFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
 @end
 
 #endif /* COREDATA_CDSERIALISINGSTORES_H */

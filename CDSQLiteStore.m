@@ -383,42 +383,43 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 	return YES;
 }
 
-/* ---- the query path (§8): a count the SQL answers, not a scan ---- */
+/* ---- the query path (§8): SQL answers, not a scan ---- */
 
-- (NSInteger)cd_countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error
+/* ONE PLACE BUILDS AND BINDS THE STATEMENT, so the count and the fetch cannot disagree about the WHERE. */
+- (sqlite3_stmt *)cd_prepareForRequest:(NSFetchRequest *)request
+                               select:(NSString *)select
+                                error:(NSError **)error
 {
 	NSEntityDescription *entity = [request entity];
 	NSMutableArray *bindings;
 	NSString *where;
 	NSMutableString *sql;
 	sqlite3_stmt *statement = NULL;
-	NSInteger count = -1;
 	NSUInteger i;
 
 	if (entity == nil) {
-		return -1;
+		return NULL;
 	}
 	bindings = [[NSMutableArray alloc] init];
 	where = CDSQLTranslatePredicate([request predicate], entity, bindings);
 	if (where == nil) {
-		/* UNTRANSLATABLE: -1 TELLS THE CALLER TO SCAN. A wrong answer would be worse than a slow one. */
+		/* UNTRANSLATABLE: THE CALLER SCANS. A wrong answer would be worse than a slow one. */
 		[bindings release];
-		return -1;
+		return NULL;
 	}
 	if (![self cd_openCreating:NO error:error]) {
 		[bindings release];
-		return -1;
+		return NULL;
 	}
 	sql = [NSMutableString stringWithFormat:
-	       @"SELECT COUNT(*) FROM agora_object o JOIN agora_entity e ON e.id = o.entity_id"
-	        " WHERE e.name = ? AND (%@)", where];
+	       @"SELECT %@ FROM agora_object o JOIN agora_entity e ON e.id = o.entity_id"
+	        " WHERE e.name = ? AND (%@)", select, where];
 	if (getenv("CD_SQL") != NULL) {
-		fprintf(stderr, "    SQL: %s\n    bindings: %s\n", [sql UTF8String],
-		        [[bindings description] UTF8String]);
+		fprintf(stderr, "    SQL: %s\n", [sql UTF8String]);
 	}
 	if (sqlite3_prepare_v2((sqlite3 *)_db, [sql UTF8String], -1, &statement, NULL) != SQLITE_OK) {
 		[bindings release];
-		return -1;
+		return NULL;
 	}
 	sqlite3_bind_text(statement, 1, [[entity name] UTF8String], -1, SQLITE_TRANSIENT);
 	for (i = 0; i < [bindings count]; i++) {
@@ -433,15 +434,53 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 		} else {
 			sqlite3_finalize(statement);
 			[bindings release];
-			return -1;
+			return NULL;
 		}
+	}
+	[bindings release];
+	return statement;
+}
+
+- (NSInteger)cd_countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error
+{
+	sqlite3_stmt *statement = [self cd_prepareForRequest:request select:@"COUNT(*)" error:error];
+	NSInteger count = -1;
+
+	if (statement == NULL) {
+		return -1;
 	}
 	if (sqlite3_step(statement) == SQLITE_ROW) {
 		count = (NSInteger)sqlite3_column_int64(statement, 0);
 	}
 	sqlite3_finalize(statement);
-	[bindings release];
 	return count;
+}
+
+- (NSArray *)cd_objectIDsForFetchRequest:(NSFetchRequest *)request error:(NSError **)error
+{
+	sqlite3_stmt *statement;
+	NSMutableArray *ids;
+	NSDictionary *entities = [[self cd_model] entitiesByName];
+
+	statement = [self cd_prepareForRequest:request select:@"o.object_key, e.name" error:error];
+	if (statement == NULL) {
+		return nil;
+	}
+	ids = [[NSMutableArray alloc] init];
+	while (sqlite3_step(statement) == SQLITE_ROW) {
+		NSInteger objectKey = (NSInteger)sqlite3_column_int64(statement, 0);
+		const char *entityName = (const char *)sqlite3_column_text(statement, 1);
+		NSEntityDescription *entity = (entityName != NULL)
+		    ? [entities objectForKey:[NSString stringWithUTF8String:entityName]] : nil;
+
+		if (entity == nil) {
+			continue;
+		}
+		[ids addObject:[self objectIDForEntity:entity
+		                       referenceObject:[NSNumber numberWithInteger:objectKey]]];
+	}
+	sqlite3_finalize(statement);
+	return [ids autorelease];
 }
 
 /* ---- save ---------------------------------------------------------------------------------------- */

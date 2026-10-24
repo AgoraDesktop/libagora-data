@@ -99,6 +99,10 @@ NSString *CDHexOfData(NSData *data);
 - (NSInteger)cd_countForFetchRequest:(NSFetchRequest *)request
                            inContext:(NSManagedObjectContext *)context
                                error:(NSError **)error;
+/* The object IDs the fetch selects, from SQL — or nil when the caller must scan (§8). */
+- (NSArray *)cd_objectIDsForFetchRequest:(NSFetchRequest *)request
+                               inContext:(NSManagedObjectContext *)context
+                                   error:(NSError **)error;
 @end
 
 @interface NSManagedObject (CDPrivate)

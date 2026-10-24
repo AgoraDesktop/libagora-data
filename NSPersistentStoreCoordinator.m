@@ -671,6 +671,26 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	return [(CDSQLiteStore *)store cd_countForFetchRequest:request error:error];
 }
 
+- (NSArray *)cd_objectIDsForFetchRequest:(NSFetchRequest *)request
+                               inContext:(NSManagedObjectContext *)context
+                                   error:(NSError **)error
+{
+	NSPersistentStore *store = ([_stores count] == 1) ? [_stores objectAtIndex:0] : nil;
+
+	/* THE SAME THREE REASONS TO SAY "SCAN" AS THE COUNT DOOR: more than one store, a request scoped elsewhere, or
+	 * pending changes that SQL has never seen. */
+	if (store == nil || [[request affectedStores] count] > 0) {
+		return nil;
+	}
+	if ([[context insertedObjects] count] > 0 || [context hasChanges]) {
+		return nil;
+	}
+	if (![store isKindOfClass:[CDSQLiteStore class]]) {
+		return nil;
+	}
+	return [(CDSQLiteStore *)store cd_objectIDsForFetchRequest:request error:error];
+}
+
 - (id)cd_executeFetchRequest:(NSFetchRequest *)request
                    inContext:(NSManagedObjectContext *)context
                        error:(NSError **)error
@@ -710,6 +730,33 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 		scoped = [filtered autorelease];
 		if ([scoped count] == 0) {
 			return [NSArray array];
+		}
+	}
+
+	/* **SQL FIRST WHEN ONE STORE CAN ANSWER IT** (§8). The WHERE selects rows; only those rows are built, so a
+	 * selective predicate on a 10^5-row file materialises the matches instead of the file. Sorting, paging and
+	 * shaping stay here, on the merged set, because SQL did not do them (§8.1's order).
+	 *
+	 * THE PREDICATE IS NOT RE-EVALUATED ON WHAT SQL RETURNED. Re-checking would hide a translator bug behind a
+	 * second, in-memory answer — the equivalence suite is the guard instead, and it is the same bargain the count
+	 * door makes. */
+	if ([scoped count] == 1) {
+		NSArray *ids = [self cd_objectIDsForFetchRequest:request inContext:context error:error];
+
+		if (ids != nil) {
+			candidates = [[NSMutableArray alloc] init];
+			for (i = 0; i < [ids count]; i++) {
+				NSManagedObject *object = [context objectWithID:[ids objectAtIndex:i]];
+
+				if (object != nil) {
+					[candidates addObject:object];
+				}
+			}
+			{
+				id result = CDFetchShape(candidates, request, [request entity]);
+				[candidates release];
+				return result;
+			}
 		}
 	}
 

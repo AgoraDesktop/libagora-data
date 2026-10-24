@@ -155,6 +155,57 @@ int main(void)
 			      "a key-path-to-key-path comparison falls back and agrees");
 		}
 
+		/* 2b. AND THE SAME EQUIVALENCE FOR THE RESULTS THEMSELVES, not just their number: the test builds its own
+		 * reference by fetching everything and filtering with the same predicate, then compares identity sets. */
+		{
+			NSArray *predicates = [NSArray arrayWithObjects:
+			                       [NSPredicate predicateWithFormat:@"age >= 50"],
+			                       [NSPredicate predicateWithFormat:@"name BEGINSWITH \"person-1\""],
+			                       [NSPredicate predicateWithFormat:@"age IN {1, 2, 3}"],
+			                       [NSPredicate predicateWithFormat:@"age BETWEEN {20, 29}"],
+			                       [NSPredicate predicateWithFormat:@"NOT (age < 90)"],
+			                       [NSPredicate predicateWithFormat:@"FUNCTION(name, \"uppercaseString\") == \"PERSON-1\""],
+			                       nil];
+			NSUInteger p;
+
+			for (p = 0; p < [predicates count]; p++) {
+				NSPredicate *predicate = [predicates objectAtIndex:p];
+				NSFetchRequest *sqlRequest = [[NSFetchRequest alloc] init];
+				NSFetchRequest *allRequest = [[NSFetchRequest alloc] init];
+				NSArray *viaSQL;
+				NSArray *all;
+				NSMutableSet *expected = [[NSMutableSet alloc] init];
+				BOOL same = YES;
+				NSUInteger k;
+
+				[sqlRequest setEntity:personEntity];
+				[sqlRequest setPredicate:predicate];
+				[sqlRequest setReturnsObjectsAsFaults:NO];
+				viaSQL = [reading executeFetchRequest:sqlRequest error:NULL];
+
+				[allRequest setEntity:personEntity];
+				[allRequest setReturnsObjectsAsFaults:NO];
+				all = [reading executeFetchRequest:allRequest error:NULL];
+				for (k = 0; k < [all count]; k++) {
+					if ([predicate evaluateWithObject:[all objectAtIndex:k]]) {
+						[expected addObject:[[all objectAtIndex:k] objectID]];
+					}
+				}
+				if ([viaSQL count] != [expected count]) {
+					same = NO;
+				}
+				for (k = 0; same && k < [viaSQL count]; k++) {
+					if (![expected containsObject:[[viaSQL objectAtIndex:k] objectID]]) {
+						same = NO;
+					}
+				}
+				CHECK(same == YES, [[predicate predicateFormat] UTF8String]);
+				[expected release];
+				[allRequest release];
+				[sqlRequest release];
+			}
+		}
+
 		/* 3. THE REASON IT EXISTS: a count through SQL against a count through a scan */
 		{
 			NSFetchRequest *request = [[NSFetchRequest alloc] init];
@@ -168,6 +219,20 @@ int main(void)
 			CHECK([[reading executeFetchRequest:request error:NULL] count] == expected,
 			      "and the scan agrees about the number");
 			printf("  count via scan:   %6.3fs\n", Now() - started); fflush(stdout);
+
+			/* AND THE FETCH ITSELF, which is what a caller usually wants: the IDs come from the WHERE, and only the
+			 * matching rows are built. */
+			[request setReturnsObjectsAsFaults:NO];
+			started = Now();
+			CHECK([[reading executeFetchRequest:request error:NULL] count] == expected,
+			      "and the FETCH returns the same rows");
+			printf("  fetch via SQL:    %6.3fs\n", Now() - started); fflush(stdout);
+
+			[request setPredicate:nil];
+			started = Now();
+			CHECK([[reading executeFetchRequest:request error:NULL] count] == 5000,
+			      "a full fetch still returns every row");
+			printf("  fetch everything: %6.3fs\n", Now() - started); fflush(stdout);
 			[request release];
 		}
 
