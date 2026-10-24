@@ -24,7 +24,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-#define DEFAULT_ROWS 5000
+#define DEFAULT_ROWS 100000
 #define DEPARTMENTS 10
 #define PER_DEPARTMENT 100
 
@@ -178,10 +178,9 @@ static void RunInMemory(void)
 
 		/* batching and paging: the two modifiers a big result set actually needs */
 		[request setPredicate:nil];
-		/* ⚠ THIS PHASE IS THE SUITE'S SLOWEST BY FAR, AND NOT BECAUSE OF CORE DATA: `-sortedArrayUsingDescriptors:`
-		 * in libagora-base is an INSERTION SORT, so it is O(n^2) in comparisons — measured at 16 s for 5,000 rows
-		 * and 502 s for 20,000 (COREDATA-PLAN.md §0.12). The suite is kept at 5,000 for that reason, and the sort
-		 * is the next Foundation fix rather than something to hide by lowering the row count silently. */
+		/* THE PHASE THAT USED TO DOMINATE: `-sortedArrayUsingDescriptors:` was an insertion sort — 16 s for 5,000
+		 * rows and 502 s for 20,000. It is a stable merge sort now, and this phase costs 0.31 s and 1.89 s for the
+		 * same sizes (COREDATA-PLAN.md §0.13). */
 		[request setSortDescriptors:[NSArray arrayWithObject:
 		    [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]]];
 		[request setFetchLimit:25];
@@ -318,16 +317,42 @@ static void RunSQLite(void)
 		CHECK([found count] == ROWS, "and reads every row back");
 		printf("  sqlite     fetch  %lu rows: %6.2fs\n", (unsigned long)ROWS, Now() - started); fflush(stdout);
 
+		/* ONE RELATIONSHIP, RESOLVED THROUGH THE FAULT DOOR — re-enabled after §0.13's cache fix; this block is
+		 * what the 10^5 suite was silently missing. */
+		{
+			NSFetchRequest *withDepartment = [[NSFetchRequest alloc] init];
+			NSArray *linked;
+
+			[withDepartment setEntity:personEntity];
+			[withDepartment setFetchLimit:1];
+			[withDepartment setPredicate:[NSPredicate predicateWithFormat:@"department != nil"]];
+			[withDepartment setReturnsObjectsAsFaults:NO];
+			linked = [reading executeFetchRequest:withDepartment error:&error];
+			CHECK([linked count] == 1, "a link survives 10^5 rows");
+			if ([linked count] == 1) {
+				CHECK([[[linked objectAtIndex:0] valueForKey:@"department"] valueForKey:@"title"] != nil,
+				      "and resolves to a department read from the file");
+			}
+			[withDepartment release];
+		}
 		(void)request;
 		[request release];
 		[reading release];
 		[reader release];
 	}
-	/* ⚠ **THE RELATIONSHIP-RESOLUTION AND READ-ONLY BLOCKS WERE REMOVED, AND THAT IS A FINDING RATHER THAN A
-	 * TIDY-UP.** With either of them in place this suite SEGFAULTS after every phase above completes — after a
-	 * 5,000-row SQLite write and read, in code that the 3-row suites exercise without trouble. A red suite is worse
-	 * than a smaller one, so the phases that measure are kept and the crash is recorded as OPEN in
-	 * COREDATA-PLAN.md §0.12. Re-adding either block is how to start finding it. */
+	/* READ-ONLY IS A REFUSAL ON THE WRITE PATH, not a flag nobody checks. Re-enabled with the rest: the crash §0.12
+	 * recorded was a dangling cache, not this block. */
+	{
+		NSPersistentStoreCoordinator *readOnly =
+		    [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+		NSDictionary *readOnlyOptions = [NSDictionary dictionaryWithObject:[NSNumber numberWithBool:YES]
+	                                                              forKey:NSReadOnlyPersistentStoreOption];
+
+		CHECK([readOnly addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+		                                URL:[NSURL fileURLWithPath:path] options:readOnlyOptions
+		                              error:&error] != nil, "the file opens read-only");
+		[readOnly release];
+	}
 	[departments release];
 	[pool release];
 }

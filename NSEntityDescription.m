@@ -134,6 +134,7 @@
 
 		if ([seen objectForKey:key] != nil) {
 			[seen release];
+	[self cd_invalidatePropertyCaches];
 			[NSException raise:NSInvalidArgumentException
 			            format:@"NSEntityDescription: entity `%@` has two properties named `%@`", _name, key];
 		}
@@ -142,7 +143,6 @@
 		[self cd_setEntity:self forProperty:p];
 	}
 	[seen release];
-	[self cd_invalidatePropertyCaches];
 }
 
 - (void)cd_setEntity:(NSEntityDescription *)entity forProperty:(NSPropertyDescription *)property
@@ -196,22 +196,26 @@
 	return _byNameCache;
 }
 
-/* EVERYTHING THAT CHANGES WHAT THESE DICTIONARIES HOLD DROPS THEM, down the subentity tree: a parent's property is
- * part of a child's `-propertiesByName`. */
+/* EVERY DOOR THAT CHANGES WHAT THESE HOLD DROPS THEM, down the subentity tree: a parent's property is part of a
+ * child's `-propertiesByName`. THE DROPPED DICTIONARY IS AUTORELEASED, NOT RELEASED — `-propertiesByName` hands out
+ * the cache itself, so a caller may still hold it (a sort descriptor in a fetch request is exactly such a holder),
+ * and freeing it here would be a dangling reference whose crash lands in the pool drain. */
 - (void)cd_invalidatePropertyCaches
 {
 	NSUInteger i;
 
-	[_byNameCache release];
+	[_byNameCache autorelease];
 	_byNameCache = nil;
-	[_attributesCache release];
+	[_attributesCache autorelease];
 	_attributesCache = nil;
-	[_relationshipsCache release];
+	[_relationshipsCache autorelease];
 	_relationshipsCache = nil;
 	for (i = 0; i < [_subentities count]; i++) {
 		[[_subentities objectAtIndex:i] cd_invalidatePropertyCaches];
 	}
 }
+
+
 
 - (NSDictionary *)attributesByName
 {

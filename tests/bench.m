@@ -6,6 +6,7 @@
  * bench — a MEASUREMENT, not a test: it is built and not registered with `add_test`, and it exists because
  * `ctest` reports pass or fail and §0.12 needed a number. Run it with a size argument.
  */
+#import <CoreData/CoreData.h>
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>

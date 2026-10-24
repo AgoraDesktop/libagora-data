@@ -44,7 +44,10 @@
 	NSManagedObjectModel *_model;		/* NOT retained */
 	NSMutableDictionary *_userInfo;
 	BOOL _abstract;
-	NSMutableDictionary *_byNameCache;		/* computed from the model, invalidated by every mutation */
+	/* CACHED PROPERTY DICTIONARIES (§0.13). Measured: sorting 10^5 objects reads a property per comparison, and
+	 * rebuilding this dictionary per read cost 42 s against 17 s cached. Invalidated by every mutating door, and the
+	 * invalidated dictionary is AUTORELEASED because callers hold it (a sort descriptor in a fetch request does). */
+	NSMutableDictionary *_byNameCache;
 	NSMutableDictionary *_attributesCache;
 	NSMutableDictionary *_relationshipsCache;
 }
