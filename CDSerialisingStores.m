@@ -150,6 +150,7 @@ static NSError *CDStoreFileError(NSInteger code, NSString *why)
 	NSData *data = ([[self URL] path] != nil) ? [NSData dataWithContentsOfFile:[[self URL] path]] : nil;
 
 	if (data == nil || [data length] == 0) {
+		[self cd_clearChanges];
 		return YES;	/* nothing on disk yet: an empty store */
 	}
 	{
@@ -158,6 +159,9 @@ static NSError *CDStoreFileError(NSInteger code, NSString *why)
 			return NO;
 		}
 		[self cd_loadStoreDictionary:stored];
+		/* A LOAD IS NOT A WRITE: what the file held is not "dirty", and a store that rewrites the file does not care
+		 * either way — but a lazy one would, and the rule belongs where the load ends. */
+		[self cd_clearChanges];
 		return YES;
 	}
 }

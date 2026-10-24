@@ -133,3 +133,10 @@ target_link_libraries(pushdown PRIVATE Data CoreFoundation::CoreFoundation objc)
 
 add_test(NAME pushdown COMMAND pushdown)
 set_tests_properties(pushdown PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# §0.18: the eager-load limit — a store that reads a row when asked, and a save that touches only what changed.
+add_executable(lazy lazy.m)
+target_link_libraries(lazy PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME lazy COMMAND lazy)
+set_tests_properties(lazy PROPERTIES ENVIRONMENT "${_agora_data_test_env}")

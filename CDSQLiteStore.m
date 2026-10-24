@@ -297,90 +297,138 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 
 - (BOOL)load:(NSError **)error
 {
-	NSDictionary *entities = [[self cd_model] entitiesByName];
-	sqlite3_stmt *statement = NULL;
-	NSInteger currentObject = 0;
-	NSAtomicStoreCacheNode *node = nil;
-
+	/* ⚠ **THE STORE NO LONGER READS THE FILE HERE, AND THAT IS THE WHOLE POINT (§0.18).** It used to join
+	 * `agora_object`, `agora_entity` and `agora_value` and build a node per row — 100,000 rows of work before the
+	 * first fetch, every launch. What it does now is open the file and check the schema; the ROWS are read when
+	 * something asks for them: `-cd_objectIDs` for which rows exist (a cheap two-column SELECT) and
+	 * `-cd_cacheNodeForObjectID:` for one row's values. A workload that reads a hundred rows now costs a hundred
+	 * row-selects instead of a whole-file load. */
 	if (![self cd_openCreating:NO error:error]) {
 		return NO;
 	}
-	if (sqlite3_prepare_v2((sqlite3 *)_db,
-	        "SELECT o.entity_id, o.object_key, e.name, v.name, v.type, v.ival, v.rval, v.tval, v.bval"
-	        "  FROM agora_object o"
-	        "  JOIN agora_entity e ON e.id = o.entity_id"
-	        "  LEFT JOIN agora_value v ON v.entity_id = o.entity_id AND v.object_key = o.object_key"
-	        " ORDER BY o.entity_id, o.object_key, v.name", -1, &statement, NULL) != SQLITE_OK) {
-		if (error != NULL) { *error = CDSQLiteError((sqlite3 *)_db, NSSQLiteError, @"prepare load"); }
+	if (![self cd_createSchema:error]) {
 		return NO;
 	}
+	[self cd_clearChanges];
+	return YES;
+}
 
+- (NSArray *)cd_objectIDs
+{
+	NSMutableArray *ids;
+	NSDictionary *entities = [[self cd_model] entitiesByName];
+	sqlite3_stmt *statement = NULL;
+
+	if (![self cd_openCreating:NO error:NULL]) {
+		return [NSArray array];
+	}
+	if (sqlite3_prepare_v2((sqlite3 *)_db,
+	        "SELECT o.object_key, e.name FROM agora_object o JOIN agora_entity e ON e.id = o.entity_id",
+	        -1, &statement, NULL) != SQLITE_OK) {
+		return [NSArray array];
+	}
+	ids = [[NSMutableArray alloc] init];
 	while (sqlite3_step(statement) == SQLITE_ROW) {
-		NSInteger objectKey = (NSInteger)sqlite3_column_int64(statement, 1);
-		const char *entityName = (const char *)sqlite3_column_text(statement, 2);
-		const char *valueName = (const char *)sqlite3_column_text(statement, 3);
-		const char *valueType = (const char *)sqlite3_column_text(statement, 4);
+		NSInteger objectKey = (NSInteger)sqlite3_column_int64(statement, 0);
+		const char *entityName = (const char *)sqlite3_column_text(statement, 1);
+		NSEntityDescription *entity = (entityName != NULL)
+		    ? [entities objectForKey:[NSString stringWithUTF8String:entityName]] : nil;
 
-		if (node == nil || objectKey != currentObject) {
-			NSString *name = [NSString stringWithUTF8String:entityName];
-			NSEntityDescription *entity = [entities objectForKey:name];
-			NSManagedObjectID *objectID;
-
-			if (node != nil) {
-				[self addCacheNodes:[NSSet setWithObject:node]];
-				[node release];
-				node = nil;
-			}
-			if (entity == nil || ![self cd_entityInConfiguration:entity]) {
-				currentObject = objectKey;
-				continue;
-			}
-			objectID = [self objectIDForEntity:entity
-			                  referenceObject:[NSNumber numberWithInteger:objectKey]];
-			node = [[NSAtomicStoreCacheNode alloc] initWithObjectID:objectID];
-			currentObject = objectKey;
+		if (entity == nil) {
+			continue;
 		}
-		if (valueName != NULL && valueType != NULL && node != nil) {
-			NSString *key = [NSString stringWithUTF8String:valueName];
-			NSString *type = [NSString stringWithUTF8String:valueType];
-			id value = nil;
+		[ids addObject:[self objectIDForEntity:entity
+		                       referenceObject:[NSNumber numberWithInteger:objectKey]]];
+	}
+	sqlite3_finalize(statement);
+	return [ids autorelease];
+}
 
-			if ([type isEqualToString:@"integer"]) {
-				value = [NSNumber numberWithLongLong:sqlite3_column_int64(statement, 5)];
-			} else if ([type isEqualToString:@"real"]) {
-				value = [NSNumber numberWithDouble:sqlite3_column_double(statement, 6)];
-			} else if ([type isEqualToString:@"date"]) {
-				value = [NSDate dateWithTimeIntervalSinceReferenceDate:sqlite3_column_double(statement, 6)];
-			} else if ([type isEqualToString:@"array"]) {
-				const void *bytes = sqlite3_column_blob(statement, 8);
-				int length = sqlite3_column_bytes(statement, 8);
-				if (bytes != NULL && length > 0) {
-					NSData *blob = [[NSData alloc] initWithBytes:bytes length:(NSUInteger)length];
-					value = [NSPropertyListSerialization propertyListWithData:blob
-					                                                 options:NSPropertyListImmutable
-					                                                  format:NULL error:NULL];
-					[blob release];
-				}
-			} else if ([type isEqualToString:@"blob"]) {
-				const void *bytes = sqlite3_column_blob(statement, 8);
-				int length = sqlite3_column_bytes(statement, 8);
-				if (bytes != NULL) {
-					value = [[[NSData alloc] initWithBytes:bytes length:(NSUInteger)length] autorelease];
-				}
-			} else if (sqlite3_column_text(statement, 7) != NULL) {
-				value = [NSString stringWithUTF8String:(const char *)sqlite3_column_text(statement, 7)];
+- (NSAtomicStoreCacheNode *)cd_cacheNodeForObjectID:(NSManagedObjectID *)objectID
+{
+	NSAtomicStoreCacheNode *cached = [_cacheNodes objectForKey:objectID];
+	NSInteger entityID;
+	NSInteger objectKey = [[objectID primaryKey] integerValue];
+	NSAtomicStoreCacheNode *node;
+	sqlite3_stmt *statement = NULL;
+
+	if (cached != nil) {
+		return cached;
+	}
+	if (![self cd_openCreating:NO error:NULL]) {
+		return nil;
+	}
+	entityID = [self cd_entityIDForName:[[objectID entity] name] insert:NO];
+	if (entityID == 0) {
+		return nil;
+	}
+	if (sqlite3_prepare_v2((sqlite3 *)_db,
+	        "SELECT name, type, ival, rval, tval, bval FROM agora_value"
+	        " WHERE entity_id = ?1 AND object_key = ?2", -1, &statement, NULL) != SQLITE_OK) {
+		return nil;
+	}
+	sqlite3_bind_int64(statement, 1, (sqlite3_int64)entityID);
+	sqlite3_bind_int64(statement, 2, (sqlite3_int64)objectKey);
+
+	node = [[NSAtomicStoreCacheNode alloc] initWithObjectID:objectID];
+	while (sqlite3_step(statement) == SQLITE_ROW) {
+		const char *valueName = (const char *)sqlite3_column_text(statement, 0);
+		const char *valueType = (const char *)sqlite3_column_text(statement, 1);
+		id value = nil;
+
+		if (valueName == NULL || valueType == NULL) {
+			continue;
+		}
+		switch (valueType[0]) {
+		case 'i':
+			value = [NSNumber numberWithLongLong:sqlite3_column_int64(statement, 2)];
+			break;
+		case 'r':
+			value = [NSNumber numberWithDouble:sqlite3_column_double(statement, 3)];
+			break;
+		case 'd':
+			value = [NSDate dateWithTimeIntervalSinceReferenceDate:sqlite3_column_double(statement, 3)];
+			break;
+		case 'b': {
+			const void *bytes = sqlite3_column_blob(statement, 5);
+			int length = sqlite3_column_bytes(statement, 5);
+
+			value = (bytes != NULL) ? [[[NSData alloc] initWithBytes:bytes length:(NSUInteger)length] autorelease]
+			                        : nil;
+			break;
+		}
+		case 'a': {
+			/* A TO-MANY RELATIONSHIP IS AN ARRAY OF OBJECT URIs, stored as a property-list blob (SCHEMA.md). The
+			 * file-level reader had this case and the per-row reader did not, so a lazy store dropped every
+			 * `staff` set — found by the serialisation suite's to-many check, which is why that suite exists. */
+			const void *bytes = sqlite3_column_blob(statement, 5);
+			int length = sqlite3_column_bytes(statement, 5);
+
+			if (bytes != NULL && length > 0) {
+				NSData *blob = [[NSData alloc] initWithBytes:bytes length:(NSUInteger)length];
+
+				value = [NSPropertyListSerialization propertyListWithData:blob
+				                                                  options:NSPropertyListImmutable
+				                                                   format:NULL error:NULL];
+				[blob release];
 			}
-			if (value != nil) {
-				[node setValue:value forKey:key];
+			break;
+		}
+		default:
+			if (sqlite3_column_text(statement, 4) != NULL) {
+				value = [NSString stringWithUTF8String:(const char *)sqlite3_column_text(statement, 4)];
 			}
+			break;
+		}
+		if (value != nil) {
+			[node setValue:value forKey:[NSString stringWithUTF8String:valueName]];
 		}
 	}
 	sqlite3_finalize(statement);
-	if (node != nil) {
-		[self addCacheNodes:[NSSet setWithObject:node]];
-		[node release];
-	}
-	return YES;
+	/* INTO THE CACHE DIRECTLY, not through `-addCacheNodes:`: a READ IS NOT A WRITE, and the dirty set is what the
+	 * incremental save writes. */
+	[_cacheNodes setObject:node forKey:objectID];
+	return [node autorelease];
 }
 
 /* ---- the query path (§8): SQL answers, not a scan ---- */
@@ -551,8 +599,9 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 
 - (BOOL)save:(NSError **)error
 {
-	NSArray *nodes;
-	NSUInteger i;
+	NSArray *removed;
+	NSArray *dirty;
+	NSUInteger i, k;
 
 	if ([self isReadOnly]) {
 		if (error != NULL) {
@@ -566,16 +615,43 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 	if (!CDExec((sqlite3 *)_db, "BEGIN IMMEDIATE", error)) {
 		return NO;
 	}
-	/* ONE REWRITE PER SAVE, inside one transaction: the file is either the old state or the new one. */
-	if (!CDExec((sqlite3 *)_db, "DELETE FROM agora_value", error) ||
-	    !CDExec((sqlite3 *)_db, "DELETE FROM agora_object", error)) {
-		CDExec((sqlite3 *)_db, "ROLLBACK", NULL);
-		return NO;
+
+	/* **INCREMENTAL, BECAUSE A LAZY STORE HAS NOT SEEN THE WHOLE FILE** (§0.18). The old body deleted every row and
+	 * rewrote the cache — correct while the cache was the file, and catastrophic now: it would erase the rows nobody
+	 * had read. Deletions first, then the dirty nodes, and untouched rows are never mentioned. */
+	removed = [[self cd_removedObjectIDs] allObjects];
+	for (i = 0; i < [removed count]; i++) {
+		NSManagedObjectID *objectID = [removed objectAtIndex:i];
+		NSInteger entityID = [self cd_entityIDForName:[[objectID entity] name] insert:NO];
+		NSInteger objectKey = [[objectID primaryKey] integerValue];
+		sqlite3_stmt *statement = NULL;
+		int bind;
+
+		if (entityID == 0) {
+			continue;
+		}
+		for (bind = 0; bind < 2; bind++) {
+			const char *sql = (bind == 0)
+			    ? "DELETE FROM agora_value WHERE entity_id = ?1 AND object_key = ?2"
+			    : "DELETE FROM agora_object WHERE entity_id = ?1 AND object_key = ?2";
+
+			if (sqlite3_prepare_v2((sqlite3 *)_db, sql, -1, &statement, NULL) != SQLITE_OK) {
+				CDExec((sqlite3 *)_db, "ROLLBACK", NULL);
+				if (error != NULL) {
+					*error = CDSQLiteError((sqlite3 *)_db, NSSQLiteError, @"prepare delete");
+				}
+				return NO;
+			}
+			sqlite3_bind_int64(statement, 1, (sqlite3_int64)entityID);
+			sqlite3_bind_int64(statement, 2, (sqlite3_int64)objectKey);
+			sqlite3_step(statement);
+			sqlite3_finalize(statement);
+		}
 	}
 
-	nodes = [[self cacheNodes] allObjects];
-	for (i = 0; i < [nodes count]; i++) {
-		NSAtomicStoreCacheNode *node = [nodes objectAtIndex:i];
+	dirty = [[self cd_dirtyNodes] allObjects];
+	for (i = 0; i < [dirty count]; i++) {
+		NSAtomicStoreCacheNode *node = [dirty objectAtIndex:i];
 		NSManagedObjectID *objectID = [node objectID];
 		NSString *entityName = [[objectID entity] name];
 		NSInteger entityID = [self cd_entityIDForName:entityName insert:YES];
@@ -583,7 +659,6 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 		NSDictionary *values = [node propertyCache];
 		NSArray *keys = [values allKeys];
 		sqlite3_stmt *statement = NULL;
-		NSUInteger k;
 
 		if (entityID == 0) {
 			CDExec((sqlite3 *)_db, "ROLLBACK", NULL);
@@ -598,6 +673,20 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 		        &statement, NULL) != SQLITE_OK) {
 			CDExec((sqlite3 *)_db, "ROLLBACK", NULL);
 			if (error != NULL) { *error = CDSQLiteError((sqlite3 *)_db, NSSQLiteError, @"prepare object insert"); }
+			return NO;
+		}
+		sqlite3_bind_int64(statement, 1, (sqlite3_int64)entityID);
+		sqlite3_bind_int64(statement, 2, (sqlite3_int64)objectKey);
+		sqlite3_step(statement);
+		sqlite3_finalize(statement);
+
+		/* THIS OBJECT'S VALUES ARE REPLACED, not merged: a property that was removed from the object would otherwise
+		 * survive in the row the store had never read. */
+		if (sqlite3_prepare_v2((sqlite3 *)_db,
+		        "DELETE FROM agora_value WHERE entity_id = ?1 AND object_key = ?2", -1,
+		        &statement, NULL) != SQLITE_OK) {
+			CDExec((sqlite3 *)_db, "ROLLBACK", NULL);
+			if (error != NULL) { *error = CDSQLiteError((sqlite3 *)_db, NSSQLiteError, @"prepare value clear"); }
 			return NO;
 		}
 		sqlite3_bind_int64(statement, 1, (sqlite3_int64)entityID);
@@ -622,6 +711,7 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 	if (!CDExec((sqlite3 *)_db, "COMMIT", error)) {
 		return NO;
 	}
+	[self cd_clearChanges];
 	/* THE OPTIONS THAT ARE COMMANDS RATHER THAN SETTINGS, run after the schema exists. */
 	if ([[self options] objectForKey:NSSQLiteAnalyzeOption] != nil) {
 		CDExec((sqlite3 *)_db, "ANALYZE", NULL);

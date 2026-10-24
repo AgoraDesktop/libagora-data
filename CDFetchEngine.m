@@ -88,9 +88,12 @@ NSArray *CDFetchCandidates(NSAtomicStore *store, NSManagedObjectContext *context
 	if (entity == nil) {
 		return [matched autorelease];
 	}
-	nodes = [[store cacheNodes] allObjects];
+	/* **IDS, NOT NODES** (§0.18): a lazy store has read no values at all, so asking it for its nodes would answer
+	 * nothing. `-cd_objectIDs` answers the cheap half — which rows exist — and the values are read only for the rows
+	 * the predicate actually touches. */
+	nodes = [store cd_objectIDs];
 	for (i = 0; i < [nodes count]; i++) {
-		NSManagedObjectID *objectID = [[nodes objectAtIndex:i] objectID];
+		NSManagedObjectID *objectID = [nodes objectAtIndex:i];
 
 		if (!CDEntityMatches([objectID entity], entity, [request includesSubentities])) {
 			continue;

@@ -31,6 +31,8 @@
 {
 	NSMutableDictionary *_cacheNodes;	/* NSManagedObjectID -> NSAtomicStoreCacheNode */
 	NSMutableDictionary *_referenceCounters;	/* entity name -> last used key */
+	NSMutableSet *_dirtyNodes;		/* nodes written since the last save */
+	NSMutableSet *_removedObjectIDs;	/* rows deleted since the last save */
 }
 
 - (id)initWithPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)coordinator
@@ -53,6 +55,22 @@
 - (id)newReferenceObjectForManagedObject:(NSManagedObject *)managedObject;
 - (id)referenceObjectForObjectID:(NSManagedObjectID *)objectID;
 
+@end
+
+/* THE THREE DOORS A LAZY STORE OVERRIDES (§0.18). A store that can read one row answers all three from the file; the
+ * ones that cannot — binary and XML, which have no per-row read — answer from the cache they loaded, which is what
+ * they had before. THE BASE CLASS IS THEREFORE STILL EAGER, and nothing changes for those two. */
+@interface NSAtomicStore (CDLazy)
+/* Every object this store holds, BY ID ONLY: no values are read. */
+- (NSArray *)cd_objectIDs;
+/* One row, on demand. */
+- (NSAtomicStoreCacheNode *)cd_cacheNodeForObjectID:(NSManagedObjectID *)objectID;
+/* What has changed since the last save: nodes added and rows removed. A store that saves incrementally reads these;
+ * a store that rewrites the file ignores them. */
+- (NSSet *)cd_dirtyNodes;
+- (NSSet *)cd_removedObjectIDs;
+/* Called by a store once its save has written the changes, so the next save starts from empty. */
+- (void)cd_clearChanges;
 @end
 
 #endif /* COREDATA_NSATOMICSTORE_H */

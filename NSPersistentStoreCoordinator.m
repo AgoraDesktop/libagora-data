@@ -470,7 +470,8 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 	if (store == nil) {
 		return;
 	}
-	node = [(NSAtomicStore *)store cacheNodeForObjectID:[object objectID]];
+	/* ONE ROW, ON DEMAND: a lazy store reads it here (§0.18), an eager one answers from its cache. */
+	node = [(NSAtomicStore *)store cd_cacheNodeForObjectID:[object objectID]];
 	if (node == nil) {
 		return;
 	}
@@ -620,7 +621,8 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 			}
 			continue;
 		}
-		node = [atomic cacheNodeForObjectID:[object objectID]];
+		/* THE LAZY DOOR, so an update to a row the store has never read still starts from what the file holds. */
+		node = [atomic cd_cacheNodeForObjectID:[object objectID]];
 		if (node == nil) {
 			node = [atomic newCacheNodeForManagedObject:object];
 			[atomic addCacheNodes:[NSSet setWithObject:node]];
