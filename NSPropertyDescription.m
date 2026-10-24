@@ -136,13 +136,13 @@
 }
 
 /*
- * THE OVERRIDE POINT IS `-copy`, NOT `-copyWithZone:`: libagora-base removed every NSZone-taking method
- * (NSObject.h's copying-protocol note records the decision), so a class that can be copied implements `-copy`.
- * A Cocoa class implementing `-copyWithZone:` would not conform to this Foundation's NSCopying at all.
+ * COCOA'S COPY DOOR: the copy is allocated in the caller's zone, and every owned value is retained by the
+ * copy so the two descriptions do not share mutable state.
  */
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSPropertyDescription *p = [[[self class] alloc] init];
+	(void)zone;
+	NSPropertyDescription *p = [[[self class] allocWithZone:zone] init];
 	p->_name = [_name retain];
 	p->_renamingIdentifier = [_renamingIdentifier retain];
 	p->_versionHashModifier = [_versionHashModifier retain];

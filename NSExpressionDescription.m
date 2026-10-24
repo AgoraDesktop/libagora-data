@@ -31,9 +31,10 @@
 	         (unsigned long)_expressionResultType, (_expression != nil) ? _expression : @""];
 }
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSExpressionDescription *e = [super copy];
+	(void)zone;
+	NSExpressionDescription *e = [super copyWithZone:zone];
 	e->_expression = [_expression retain];
 	e->_expressionResultType = _expressionResultType;
 	return e;

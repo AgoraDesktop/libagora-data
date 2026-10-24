@@ -108,3 +108,14 @@ target_link_libraries(routing PRIVATE Data CoreFoundation::CoreFoundation objc)
 
 add_test(NAME routing COMMAND routing)
 set_tests_properties(routing PROPERTIES ENVIRONMENT "${_agora_data_test_env}")
+
+# §15.2's sixth item and §15.3's eighth: a 10^5-row workload with relationships, batching and undo, against the
+# in-memory store AND SQLite. The times it prints are part of the result.
+add_executable(scale scale.m)
+target_link_libraries(scale PRIVATE Data CoreFoundation::CoreFoundation objc)
+
+add_test(NAME scale COMMAND scale)
+set_tests_properties(scale PROPERTIES ENVIRONMENT "${_agora_data_test_env}" TIMEOUT 900)
+
+add_executable(bench bench.m)
+target_link_libraries(bench PRIVATE Data CoreFoundation::CoreFoundation objc)

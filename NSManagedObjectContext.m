@@ -801,7 +801,11 @@ static NSError *CDError(NSInteger code, NSString *why)
 
 /* ---- coding -------------------------------------------------------------------------------------- */
 
-- (id)copy { return [self retain]; }
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return [self retain];
+}
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {

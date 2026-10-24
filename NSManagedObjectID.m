@@ -75,7 +75,11 @@
 	return [[_entity name] hash] ^ [_primaryKey hash] ^ (NSUInteger)_temporary;
 }
 
-- (id)copy { return [self retain]; }
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return [self retain];
+}
 
 - (NSString *)description
 {

@@ -43,9 +43,10 @@
 	_userInfo = copy;
 }
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSPropertyMapping *m = [[NSPropertyMapping alloc] init];
+	(void)zone;
+	NSPropertyMapping *m = [[NSPropertyMapping allocWithZone:zone] init];
 	m->_name = [_name copy];
 	m->_valueExpression = [_valueExpression copy];
 	m->_userInfo = [_userInfo retain];

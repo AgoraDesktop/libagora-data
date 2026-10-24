@@ -37,6 +37,9 @@
 	[_versionHashModifier release];
 	[_properties release];
 	[_subentities release];
+	[_byNameCache release];
+	[_attributesCache release];
+	[_relationshipsCache release];
 	[_userInfo release];
 	[super dealloc];
 }
@@ -139,6 +142,7 @@
 		[self cd_setEntity:self forProperty:p];
 	}
 	[seen release];
+	[self cd_invalidatePropertyCaches];
 }
 
 - (void)cd_setEntity:(NSEntityDescription *)entity forProperty:(NSPropertyDescription *)property
@@ -146,7 +150,16 @@
 	[property cd_setEntity:entity];
 }
 
-/* INHERITED PROPERTIES ARE PART OF `-propertiesByName`, WHICH IS APPLE'S CONTRACT AND NOT AN OPTIMISATION: an
+/* ⚠ **THESE DICTIONARIES USED TO BE COMPUTED ON EVERY CALL, AND THAT WAS MEASURED WRONG (§0.12).** The note below
+ * says a stale dictionary "is a bug that survives review"; the measurement says the opposite trade: sorting 5,000
+ * managed objects took **63.76 s** because every comparison reads a property and every read rebuilt this dictionary
+ * — 1 ms per `-valueForKeyPath:`, 10^5 comparisons at 10^5 rows. So they are CACHED now, and the cache is dropped
+ * by every door that changes what would be in it: `-setProperties:`, `-setSubentities:` and `-setSuperentity:` (and
+ * a superentity's change invalidates its whole subtree, because inherited properties are part of every descendant's
+ * dictionary). An entity is mutated by a model being built and read by everything afterwards, which is exactly the
+ * shape a cache is for.
+ *
+ * INHERITED PROPERTIES ARE PART OF `-propertiesByName`, WHICH IS APPLE'S CONTRACT AND NOT AN OPTIMISATION: an
  * Employee answers `name` because a Person has one, and a class with its own property list would make every
  * inherited write an unmodelled key. The chain is walked root-first so a nearer definition wins by name. */
 - (NSArray *)cd_propertiesIncludingInherited
@@ -169,45 +182,73 @@
 
 - (NSDictionary *)propertiesByName
 {
-	NSMutableDictionary *out = [[NSMutableDictionary alloc] init];
-	NSArray *all = [self cd_propertiesIncludingInherited];
 	NSUInteger i;
 
-	for (i = 0; i < [all count]; i++) {
-		NSPropertyDescription *p = [all objectAtIndex:i];
-		[out setObject:p forKey:[p name]];
+	if (_byNameCache == nil) {
+		NSArray *all = [self cd_propertiesIncludingInherited];
+
+		_byNameCache = [[NSMutableDictionary alloc] init];
+		for (i = 0; i < [all count]; i++) {
+			NSPropertyDescription *p = [all objectAtIndex:i];
+			[_byNameCache setObject:p forKey:[p name]];
+		}
 	}
-	return [out autorelease];
+	return _byNameCache;
+}
+
+/* EVERYTHING THAT CHANGES WHAT THESE DICTIONARIES HOLD DROPS THEM, down the subentity tree: a parent's property is
+ * part of a child's `-propertiesByName`. */
+- (void)cd_invalidatePropertyCaches
+{
+	NSUInteger i;
+
+	[_byNameCache release];
+	_byNameCache = nil;
+	[_attributesCache release];
+	_attributesCache = nil;
+	[_relationshipsCache release];
+	_relationshipsCache = nil;
+	for (i = 0; i < [_subentities count]; i++) {
+		[[_subentities objectAtIndex:i] cd_invalidatePropertyCaches];
+	}
 }
 
 - (NSDictionary *)attributesByName
 {
-	NSMutableDictionary *out = [[NSMutableDictionary alloc] init];
-	NSArray *all = [self cd_propertiesIncludingInherited];
-	NSUInteger i, n = [all count];
+	NSArray *all;
+	NSUInteger i, n;
 
-	for (i = 0; i < n; i++) {
-		NSPropertyDescription *p = [all objectAtIndex:i];
-		if ([p isKindOfClass:[NSAttributeDescription class]]) {
-			[out setObject:p forKey:[p name]];
+	if (_attributesCache == nil) {
+		all = [self cd_propertiesIncludingInherited];
+		n = [all count];
+		_attributesCache = [[NSMutableDictionary alloc] init];
+		for (i = 0; i < n; i++) {
+			NSPropertyDescription *p = [all objectAtIndex:i];
+			if ([p isKindOfClass:[NSAttributeDescription class]]) {
+				[_attributesCache setObject:p forKey:[p name]];
+			}
 		}
 	}
-	return [out autorelease];
+	return _attributesCache;
 }
 
 - (NSDictionary *)relationshipsByName
 {
-	NSMutableDictionary *out = [[NSMutableDictionary alloc] init];
-	NSArray *all = [self cd_propertiesIncludingInherited];
-	NSUInteger i, n = [all count];
+	NSArray *all;
+	NSUInteger i, n;
 
-	for (i = 0; i < n; i++) {
-		NSPropertyDescription *p = [all objectAtIndex:i];
-		if ([p isKindOfClass:[NSRelationshipDescription class]]) {
-			[out setObject:p forKey:[p name]];
+	if (_relationshipsCache == nil) {
+		all = [self cd_propertiesIncludingInherited];
+		n = [all count];
+		_relationshipsCache = [[NSMutableDictionary alloc] init];
+		for (i = 0; i < n; i++) {
+			NSPropertyDescription *p = [all objectAtIndex:i];
+			if ([p isKindOfClass:[NSRelationshipDescription class]]) {
+				[_relationshipsCache setObject:p forKey:[p name]];
+			}
 		}
 	}
-	return [out autorelease];
+	return _relationshipsCache;
 }
 
 - (NSArray *)relationshipsWithDestinationEntity:(NSEntityDescription *)entity
@@ -258,6 +299,7 @@
 		}
 	}
 	_superentity = entity;
+	[self cd_invalidatePropertyCaches];
 	if (entity != nil) {
 		for (i = 0; i < [entity->_subentities count]; i++) {
 			if ([entity->_subentities objectAtIndex:i] == self) {
@@ -389,9 +431,10 @@
 
 /* ---- coding -------------------------------------------------------------------------------------- */
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSEntityDescription *e = [[NSEntityDescription alloc] init];
+	(void)zone;
+	NSEntityDescription *e = [[NSEntityDescription allocWithZone:zone] init];
 	NSUInteger i;
 
 	e->_name = [_name retain];

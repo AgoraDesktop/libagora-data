@@ -306,9 +306,10 @@ static NSString *const CDModelVersionHashesKey = @"NSStoreModelVersionHashes";
 
 /* ---- coding -------------------------------------------------------------------------------------- */
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSManagedObjectModel *m = [[NSManagedObjectModel alloc] init];
+	(void)zone;
+	NSManagedObjectModel *m = [[NSManagedObjectModel allocWithZone:zone] init];
 	NSUInteger i;
 
 	for (i = 0; i < [_entities count]; i++) {

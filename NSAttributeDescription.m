@@ -89,9 +89,10 @@
 	         (_valueTransformerName != nil) ? _valueTransformerName : @""];
 }
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSAttributeDescription *a = [super copy];
+	(void)zone;
+	NSAttributeDescription *a = [super copyWithZone:zone];
 	a->_attributeType = _attributeType;
 	a->_attributeValueClassName = [_attributeValueClassName retain];
 	a->_defaultValue = [_defaultValue retain];

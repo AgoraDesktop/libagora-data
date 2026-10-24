@@ -215,11 +215,23 @@ static NSUInteger CDTemporaryKeyCounter = 0;
 
 		if (working == nil) {
 			working = [[NSMutableSet alloc] init];
-			if (value != nil && value != [NSNull null]) {
-				[working unionSet:value];
-			} else {
+			if (value == nil || value == [NSNull null]) {
 				value = [_committed objectForKey:key];
-				if (value != nil) { [working unionSet:value]; }
+			}
+			/* A TO-MANY VALUE HAS TWO SHAPES: a set, in the object graph, and an ARRAY OF REFERENCES, which is what
+			 * a store's node holds and what `-cd_applyCommittedValues:` installs after a save. Both are accepted
+			 * here, because the alternative — refusing one — raised `-[AGArrayMutable allObjects] is not
+			 * implemented` the first time a 10^5-row workload read a relationship back from its own save. */
+			if (value != nil && value != [NSNull null]) {
+				if ([value respondsToSelector:@selector(allObjects)]) {
+					[working unionSet:value];
+				} else if ([value respondsToSelector:@selector(count)]) {
+					NSUInteger m;
+
+					for (m = 0; m < [value count]; m++) {
+						[working addObject:[value objectAtIndex:m]];
+					}
+				}
 			}
 			if (_mutableSets == nil) {
 				_mutableSets = [[NSMutableDictionary alloc] init];

@@ -44,6 +44,9 @@
 	NSManagedObjectModel *_model;		/* NOT retained */
 	NSMutableDictionary *_userInfo;
 	BOOL _abstract;
+	NSMutableDictionary *_byNameCache;		/* computed from the model, invalidated by every mutation */
+	NSMutableDictionary *_attributesCache;
+	NSMutableDictionary *_relationshipsCache;
 }
 
 + (NSEntityDescription *)entityForName:(NSString *)entityName

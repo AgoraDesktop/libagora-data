@@ -58,8 +58,9 @@
 	return [managedContext executeFetchRequest:request error:NULL];
 }
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
+	(void)zone;
 	return [[NSFetchRequestExpression expressionForFetch:_requestExpression
 	                                            context:_contextExpression
 	                                          countOnly:_countOnly] retain];

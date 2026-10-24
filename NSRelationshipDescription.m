@@ -90,9 +90,10 @@
 	         (unsigned long)_minCount, (unsigned long)_maxCount, (unsigned long)_deleteRule];
 }
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSRelationshipDescription *r = [super copy];
+	(void)zone;
+	NSRelationshipDescription *r = [super copyWithZone:zone];
 	r->_destinationEntity = _destinationEntity;
 	r->_inverseRelationship = nil;	/* a copy is not linked until a model says so */
 	r->_minCount = _minCount;

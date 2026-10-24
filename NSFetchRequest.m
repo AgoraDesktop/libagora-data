@@ -107,15 +107,16 @@
 - (NSUInteger)fetchBatchSize { return _fetchBatchSize; }
 - (void)setFetchBatchSize:(NSUInteger)bsize { _fetchBatchSize = bsize; }
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSFetchRequest *r = [[NSFetchRequest alloc] init];
+	(void)zone;
+	NSFetchRequest *r = [[NSFetchRequest allocWithZone:zone] init];
 	NSUInteger i;
 
 	r->_entity = _entity;
 	r->_predicate = [_predicate retain];
 	{
-		NSMutableArray *sorted = [[NSMutableArray alloc] init];
+		NSMutableArray *sorted = [[NSMutableArray allocWithZone:zone] init];
 		for (i = 0; i < [_sortDescriptors count]; i++) {
 			[sorted addObject:[[_sortDescriptors objectAtIndex:i] copy]];
 		}

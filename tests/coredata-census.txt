@@ -12,13 +12,9 @@
 # W1: 7 of 21 classes, 99 of 99. W2: 9 of 21, 140 of 140. W3: 10 of 21, 179 of 179. W4: 14 of 21, 238 of 238.
 # W5: 16 of 21, 272 of 272 (the first pin said 271; api-ledger missing named the deprecated selector).
 # W6: 21 of 21 classes, 331 of 331 selectors — the declared surface complete.
-# W7: still 21 of 21 and 331 of 331: the three serialising stores are PRIVATE classes.
-# W7b relationships: unchanged again — to-many collections, inverses, references and resolution are all behind
-#     doors the manifest already counted.
-# W7c ROUTING: unchanged, and that is the point of the note in §0.11: configuration partitioning and
-#     -assignObject:toPersistentStore: were DECLARED, IMPLEMENTED and NEVER ASKED, so the census scored them and
-#     the behaviour was wrong. `tests/routing.m` asks them. A census measures doors; it cannot measure whether
-#     anything opens them.
+# W7: store types; W7b relationships; W7c routing — none moved a selector, which is the lesson §0.11 records.
+# W7d SCALE (§0.12): still 21 of 21 and 331 of 331. methods-declared rose with NSEntityDescription's cache
+#     invalidation and the measurement tool. THREE QUADRATICS WERE FIXED IN libagora-base AND ONE IS OPEN.
 
 classes-missing 0
 classes-offered 21

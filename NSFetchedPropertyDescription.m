@@ -27,9 +27,10 @@
 	return [NSString stringWithFormat:@"fetch=%@", (_fetchRequest != nil) ? _fetchRequest : @""];
 }
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSFetchedPropertyDescription *f = [super copy];
+	(void)zone;
+	NSFetchedPropertyDescription *f = [super copyWithZone:zone];
 	f->_fetchRequest = [_fetchRequest retain];
 	return f;
 }

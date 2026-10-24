@@ -111,9 +111,10 @@
 	_entityMigrationPolicyClassName = copy;
 }
 
-- (id)copy
+- (id)copyWithZone:(NSZone *)zone
 {
-	NSEntityMapping *m = [[NSEntityMapping alloc] init];
+	(void)zone;
+	NSEntityMapping *m = [[NSEntityMapping allocWithZone:zone] init];
 	NSUInteger i;
 
 	m->_name = [_name copy];
@@ -126,8 +127,8 @@
 	m->_userInfo = [_userInfo retain];
 	m->_entityMigrationPolicyClassName = [_entityMigrationPolicyClassName copy];
 	{
-		NSMutableArray *attributes = [[NSMutableArray alloc] init];
-		NSMutableArray *relationships = [[NSMutableArray alloc] init];
+		NSMutableArray *attributes = [[NSMutableArray allocWithZone:zone] init];
+		NSMutableArray *relationships = [[NSMutableArray allocWithZone:zone] init];
 
 		for (i = 0; i < [_attributeMappings count]; i++) {
 			[attributes addObject:[[_attributeMappings objectAtIndex:i] copy]];
