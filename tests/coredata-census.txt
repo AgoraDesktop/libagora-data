@@ -26,6 +26,7 @@ functions-offered 0
 functions-present 0
 methods-declared 373
 methods-declared-not-implemented 0
+methods-informal 0
 protocols-missing 0
 protocols-offered 0
 protocols-present 0
