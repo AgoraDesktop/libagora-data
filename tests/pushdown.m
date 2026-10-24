@@ -145,10 +145,12 @@ int main(void)
 				return [[object valueForKey:@"age"] intValue] < 5;
 			}];
 			Agree(reading, personEntity, block, "a block predicate falls back to the scan and agrees");
-			/* A COMPARISON BETWEEN TWO KEY PATHS: translatable only with a join per row, so the translator refuses
-			 * and the scan answers. (`FUNCTION(...)` would be the natural example and is NOT in this tree's predicate
-			 * grammar yet — the parser reads it as a function named `FUNCTION:` — which §0.15 records as a gap rather
-			 * than hiding behind a test that avoids it.) */
+			/* `FUNCTION(...)` IS THE NATURAL UNTRANSLATABLE CASE and it is here now that the grammar has it: the
+			 * parser read it as a function named `FUNCTION:` until §0.16, and this suite is what found that. A
+			 * comparison whose left side is not a key path cannot be a column test. */
+			Agree(reading, personEntity,
+			      [NSPredicate predicateWithFormat:@"FUNCTION(name, \"uppercaseString\") == \"PERSON-1\""],
+			      "a FUNCTION(...) selector falls back to the scan and agrees");
 			Agree(reading, personEntity, [NSPredicate predicateWithFormat:@"age < score"],
 			      "a key-path-to-key-path comparison falls back and agrees");
 		}
