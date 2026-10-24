@@ -32,6 +32,10 @@ NSArray *CDFetchPendingCandidates(NSManagedObjectContext *context, NSFetchReques
 /* Stage two, over the union: sort, offset, limit, result type, and faults at the door. */
 id CDFetchShape(NSArray *candidates, NSFetchRequest *request, NSEntityDescription *entity);
 
+/* The same, for a store that already did the ORDER BY and the LIMIT/OFFSET (§0.19): paging a page is the one thing
+ * this must not do twice. */
+id CDFetchShapeAfterSQL(NSArray *candidates, NSFetchRequest *request, NSEntityDescription *entity);
+
 /* Both stages for one store, which is what the single-store case wants and what W5's suite measures. */
 NSArray *CDFetchExecute(NSAtomicStore *store, NSManagedObjectContext *context,
                         NSFetchRequest *request, NSError **error);

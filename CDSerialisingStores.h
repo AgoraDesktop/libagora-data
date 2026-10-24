@@ -53,6 +53,10 @@
 /* THE FETCH DOOR (§8): the object IDs the WHERE selects, read by SQL, so only matching rows are ever built. nil
  * means "scan instead" — an untranslatable predicate, or a request this store cannot answer alone. */
 - (NSArray *)cd_objectIDsForFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
+
+/* Whether this store can apply `sortDescriptors` and `fetchLimit`/`fetchOffset` ITSELF (§0.19). When it can, the IDs
+ * come back in order and already paged, and the caller must not page them again. */
+- (BOOL)cd_canPushDownOrderingForRequest:(NSFetchRequest *)request;
 @end
 
 #endif /* COREDATA_CDSERIALISINGSTORES_H */

@@ -746,6 +746,9 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 		NSArray *ids = [self cd_objectIDsForFetchRequest:request inContext:context error:error];
 
 		if (ids != nil) {
+			BOOL ordered = NO;
+			NSPersistentStore *only = [scoped objectAtIndex:0];
+
 			candidates = [[NSMutableArray alloc] init];
 			for (i = 0; i < [ids count]; i++) {
 				NSManagedObject *object = [context objectWithID:[ids objectAtIndex:i]];
@@ -754,8 +757,15 @@ static NSDictionary *CDValuesOfObject(NSManagedObject *object)
 					[candidates addObject:object];
 				}
 			}
+			/* IF THE STORE DID THE ORDERING AND THE PAGING, THEY MUST NOT BE DONE AGAIN (§0.19). */
+			if ([only isKindOfClass:[CDSQLiteStore class]]) {
+				ordered = [(CDSQLiteStore *)only cd_canPushDownOrderingForRequest:request];
+			}
 			{
-				id result = CDFetchShape(candidates, request, [request entity]);
+				id result = ordered
+				    ? CDFetchShapeAfterSQL(candidates, request, [request entity])
+				    : CDFetchShape(candidates, request, [request entity]);
+
 				[candidates release];
 				return result;
 			}

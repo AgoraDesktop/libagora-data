@@ -198,6 +198,11 @@
 	return [_cacheNodes objectForKey:objectID];
 }
 
+- (void)cd_prefetchNodesForObjectIDs:(NSArray *)objectIDs
+{
+	(void)objectIDs;	/* an eager store has every node already */
+}
+
 - (NSSet *)cd_dirtyNodes { return [[_dirtyNodes copy] autorelease]; }
 - (NSSet *)cd_removedObjectIDs { return [[_removedObjectIDs copy] autorelease]; }
 

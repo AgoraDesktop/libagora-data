@@ -65,6 +65,9 @@
 - (NSArray *)cd_objectIDs;
 /* One row, on demand. */
 - (NSAtomicStoreCacheNode *)cd_cacheNodeForObjectID:(NSManagedObjectID *)objectID;
+/* MANY rows at once, for the scan that has to look at every candidate (§0.19): a lazy store would otherwise run one
+ * SELECT per row. The base class has them all already, so this is a no-op there. */
+- (void)cd_prefetchNodesForObjectIDs:(NSArray *)objectIDs;
 /* What has changed since the last save: nodes added and rows removed. A store that saves incrementally reads these;
  * a store that rewrites the file ignores them. */
 - (NSSet *)cd_dirtyNodes;

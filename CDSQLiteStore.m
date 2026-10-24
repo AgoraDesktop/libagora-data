@@ -26,6 +26,7 @@
 #import <CoreData/NSAtomicStoreCacheNode.h>
 #import <CoreData/NSManagedObjectID.h>
 #import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSFetchRequest.h>
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/CoreDataErrors.h>
@@ -344,6 +345,148 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 	return [ids autorelease];
 }
 
+/* **CHUNKS OF ROWS, NOT ONE ROW AT A TIME** (§0.19). The scan has to look at every candidate, and a lazy store that
+ * answered one SELECT per candidate would be slower than the eager load it replaced. Ids are grouped by entity and
+ * read 200 at a time, so a 10^5-row scan is 500 statements rather than 100,000. */
+- (void)cd_prefetchNodesForObjectIDs:(NSArray *)objectIDs
+{
+	NSMutableDictionary *byEntity = [[NSMutableDictionary alloc] init];
+	NSDictionary *entities = [[self cd_model] entitiesByName];
+	NSUInteger i, c;
+
+	if (![self cd_openCreating:NO error:NULL]) {
+		[byEntity release];
+		return;
+	}
+	for (i = 0; i < [objectIDs count]; i++) {
+		NSManagedObjectID *objectID = [objectIDs objectAtIndex:i];
+		NSString *entityName = [[objectID entity] name];
+		NSMutableArray *group;
+
+		if (entityName == nil || [_cacheNodes objectForKey:objectID] != nil) {
+			continue;	/* already read, or an id with no entity */
+		}
+		group = [byEntity objectForKey:entityName];
+		if (group == nil) {
+			group = [[NSMutableArray alloc] init];
+			[byEntity setObject:group forKey:entityName];
+			[group release];
+		}
+		[group addObject:objectID];
+	}
+
+	{
+		NSArray *names = [byEntity allKeys];
+
+		for (i = 0; i < [names count]; i++) {
+			NSString *entityName = [names objectAtIndex:i];
+			NSArray *group = [byEntity objectForKey:entityName];
+			NSEntityDescription *entity = [entities objectForKey:entityName];
+			NSInteger entityID = [self cd_entityIDForName:entityName insert:NO];
+
+			if (entity == nil || entityID == 0) {
+				continue;
+			}
+			for (c = 0; c < [group count]; c += 200) {
+				NSUInteger count = ([group count] - c < 200) ? ([group count] - c) : 200;
+				NSMutableString *placeholders = [[NSMutableString alloc] init];
+				NSMutableString *sql = [[NSMutableString alloc] init];
+				NSMutableDictionary *nodes = [[NSMutableDictionary alloc] init];
+				sqlite3_stmt *statement = NULL;
+				NSUInteger k;
+
+				for (k = 0; k < count; k++) {
+					[placeholders appendString:(k == 0) ? @"?" : @",?"];
+					[nodes setObject:[[NSAtomicStoreCacheNode alloc]
+					                  initWithObjectID:[group objectAtIndex:c + k]]
+					          forKey:[group objectAtIndex:c + k]];
+				}
+				[sql appendFormat:
+				 @"SELECT object_key, name, type, ival, rval, tval, bval FROM agora_value"
+				  " WHERE entity_id = ? AND object_key IN (%@)", placeholders];
+				if (sqlite3_prepare_v2((sqlite3 *)_db, [sql UTF8String], -1, &statement, NULL) == SQLITE_OK) {
+					sqlite3_bind_int64(statement, 1, (sqlite3_int64)entityID);
+					for (k = 0; k < count; k++) {
+						sqlite3_bind_int64(statement, (int)(k + 2),
+						                   (sqlite3_int64)[[ [group objectAtIndex:c + k] primaryKey] longLongValue]);
+					}
+					while (sqlite3_step(statement) == SQLITE_ROW) {
+						NSInteger objectKey = (NSInteger)sqlite3_column_int64(statement, 0);
+						const char *valueName = (const char *)sqlite3_column_text(statement, 1);
+						const char *valueType = (const char *)sqlite3_column_text(statement, 2);
+						NSManagedObjectID *objectID = [self objectIDForEntity:entity
+						                                      referenceObject:[NSNumber numberWithInteger:objectKey]];
+						NSAtomicStoreCacheNode *node = [nodes objectForKey:objectID];
+						id value = nil;
+
+						if (node == nil || valueName == NULL || valueType == NULL) {
+							continue;
+						}
+						switch (valueType[0]) {
+						case 'i':
+							value = [NSNumber numberWithLongLong:sqlite3_column_int64(statement, 3)];
+							break;
+						case 'r':
+							value = [NSNumber numberWithDouble:sqlite3_column_double(statement, 4)];
+							break;
+						case 'd':
+							value = [NSDate dateWithTimeIntervalSinceReferenceDate:
+							         sqlite3_column_double(statement, 4)];
+							break;
+						case 'a':
+						case 'b': {
+							const void *bytes = sqlite3_column_blob(statement, 6);
+							int length = sqlite3_column_bytes(statement, 6);
+
+							/* ONE OWNED OBJECT, ONE RELEASE (§0.19). The first version retained the data case and
+							 * then autoreleased it again — an over-release that showed up as wrong results in the
+							 * scan path, not as a crash. */
+							if (bytes != NULL && length > 0) {
+								NSData *blob = [[NSData alloc] initWithBytes:bytes length:(NSUInteger)length];
+
+								if (valueType[0] == 'b') {
+									value = blob;
+								} else {
+									value = [[NSPropertyListSerialization propertyListWithData:blob
+									                                                   options:NSPropertyListImmutable
+									                                                    format:NULL error:NULL] retain];
+									[blob release];
+								}
+								[value autorelease];
+							}
+							break;
+						}
+						default:
+							if (sqlite3_column_text(statement, 5) != NULL) {
+								value = [NSString stringWithUTF8String:
+								         (const char *)sqlite3_column_text(statement, 5)];
+							}
+							break;
+						}
+						if (value != nil) {
+							[node setValue:value forKey:[NSString stringWithUTF8String:valueName]];
+						}
+					}
+					sqlite3_finalize(statement);
+				}
+				/* CACHED DIRECTLY: a prefetch is a READ. */
+				{
+					NSArray *built = [nodes allKeys];
+
+					for (k = 0; k < [built count]; k++) {
+						[_cacheNodes setObject:[nodes objectForKey:[built objectAtIndex:k]]
+						                forKey:[built objectAtIndex:k]];
+					}
+				}
+				[nodes release];
+				[sql release];
+				[placeholders release];
+			}
+		}
+	}
+	[byEntity release];
+}
+
 - (NSAtomicStoreCacheNode *)cd_cacheNodeForObjectID:(NSManagedObjectID *)objectID
 {
 	NSAtomicStoreCacheNode *cached = [_cacheNodes objectForKey:objectID];
@@ -436,6 +579,8 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 /* ONE PLACE BUILDS AND BINDS THE STATEMENT, so the count and the fetch cannot disagree about the WHERE. */
 - (sqlite3_stmt *)cd_prepareForRequest:(NSFetchRequest *)request
                                select:(NSString *)select
+                                 tail:(NSString *)tail
+                           extraBinds:(NSArray *)extraBinds
                                 error:(NSError **)error
 {
 	NSEntityDescription *entity = [request entity];
@@ -444,6 +589,8 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 	NSMutableString *sql;
 	sqlite3_stmt *statement = NULL;
 	NSUInteger i;
+
+	(void)extraBinds;
 
 	if (entity == nil) {
 		return NULL;
@@ -461,7 +608,7 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 	}
 	sql = [NSMutableString stringWithFormat:
 	       @"SELECT %@ FROM agora_object o JOIN agora_entity e ON e.id = o.entity_id"
-	        " WHERE e.name = ? AND (%@)", select, where];
+	        " WHERE e.name = ? AND (%@)%@", select, where, (tail != nil) ? tail : @""];
 	if (getenv("CD_SQL") != NULL) {
 		fprintf(stderr, "    SQL: %s\n", [sql UTF8String]);
 	}
@@ -470,13 +617,20 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 		return NULL;
 	}
 	sqlite3_bind_text(statement, 1, [[entity name] UTF8String], -1, SQLITE_TRANSIENT);
-	for (i = 0; i < [bindings count]; i++) {
-		id value = [bindings objectAtIndex:i];
-
+	for (i = 0; i < [bindings count] + [extraBinds count]; i++) {
+		id value = (i < [bindings count]) ? [bindings objectAtIndex:i] : [extraBinds objectAtIndex:i - [bindings count]];
 		if ([value isKindOfClass:[NSString class]]) {
 			sqlite3_bind_text(statement, (int)(i + 2), [value UTF8String], -1, SQLITE_TRANSIENT);
 		} else if ([value isKindOfClass:[NSNumber class]]) {
-			sqlite3_bind_double(statement, (int)(i + 2), [value doubleValue]);
+			/* INTEGERS AS INTEGERS: `LIMIT`/`OFFSET` and every integer attribute bind as int64, which is what the
+			 * column holds — a double would compare fine and be the wrong type in a `COUNT`-shaped query. */
+			const char *encoding = [value objCType];
+
+			if (encoding != NULL && (encoding[0] == 'f' || encoding[0] == 'd')) {
+				sqlite3_bind_double(statement, (int)(i + 2), [value doubleValue]);
+			} else {
+				sqlite3_bind_int64(statement, (int)(i + 2), (sqlite3_int64)[value longLongValue]);
+			}
 		} else if ([value isKindOfClass:[NSData class]]) {
 			sqlite3_bind_blob(statement, (int)(i + 2), [value bytes], (int)[value length], SQLITE_TRANSIENT);
 		} else {
@@ -491,7 +645,8 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 
 - (NSInteger)cd_countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error
 {
-	sqlite3_stmt *statement = [self cd_prepareForRequest:request select:@"COUNT(*)" error:error];
+	sqlite3_stmt *statement = [self cd_prepareForRequest:request select:@"COUNT(*)" tail:nil
+	                                          extraBinds:nil error:error];
 	NSInteger count = -1;
 
 	if (statement == NULL) {
@@ -504,13 +659,120 @@ static BOOL CDExec(sqlite3 *db, const char *sql, NSError **error)
 	return count;
 }
 
+static NSString *CDSQLiteColumnForAttribute(NSAttributeDescription *attribute)
+{
+	switch ([attribute attributeType]) {
+	case NSInteger16AttributeType:
+	case NSInteger32AttributeType:
+	case NSInteger64AttributeType:
+	case NSBooleanAttributeType:
+		return @"ival";
+	case NSDecimalAttributeType:
+	case NSDoubleAttributeType:
+	case NSFloatAttributeType:
+	case NSDateAttributeType:
+		return @"rval";
+	case NSStringAttributeType:
+		return @"tval";
+	default:
+		return nil;
+	}
+}
+
+static NSString *CDSQLiteTypeNameForAttribute(NSAttributeDescription *attribute)
+{
+	switch ([attribute attributeType]) {
+	case NSInteger16AttributeType:
+	case NSInteger32AttributeType:
+	case NSInteger64AttributeType:
+	case NSBooleanAttributeType:
+		return @"integer";
+	case NSDecimalAttributeType:
+	case NSDoubleAttributeType:
+	case NSFloatAttributeType:
+		return @"real";
+	case NSDateAttributeType:
+		return @"date";
+	case NSStringAttributeType:
+		return @"string";
+	default:
+		return nil;
+	}
+}
+
+- (BOOL)cd_canPushDownOrderingForRequest:(NSFetchRequest *)request
+{
+	NSArray *descriptors = [request sortDescriptors];
+	NSEntityDescription *entity = [request entity];
+	NSUInteger i;
+
+	/* DISTINCT AND ORDER BY DO NOT COMPOSE WITH A LIMIT the way a caller expects — a distinct page is a page of
+	 * distinct rows — so a request that asks for both is shaped in memory. */
+	if ([request returnsDistinctResults]) {
+		return NO;
+	}
+	if (entity == nil) {
+		return NO;
+	}
+	for (i = 0; i < [descriptors count]; i++) {
+		NSSortDescriptor *descriptor = [descriptors objectAtIndex:i];
+		NSAttributeDescription *attribute =
+		    [[entity attributesByName] objectForKey:[descriptor key]];
+
+		if (attribute == nil || CDSQLiteColumnForAttribute(attribute) == nil ||
+		    CDSQLiteTypeNameForAttribute(attribute) == nil) {
+			return NO;	/* a relationship, a selector, a blob: not a column */
+		}
+	}
+	return YES;
+}
+
 - (NSArray *)cd_objectIDsForFetchRequest:(NSFetchRequest *)request error:(NSError **)error
 {
 	sqlite3_stmt *statement;
 	NSMutableArray *ids;
 	NSDictionary *entities = [[self cd_model] entitiesByName];
+	NSMutableString *tail = [[NSMutableString alloc] init];
 
-	statement = [self cd_prepareForRequest:request select:@"o.object_key, e.name" error:error];
+	/* **ORDER BY AND LIMIT GO TO SQL WHEN THEY CAN** (§0.19). Each descriptor becomes a correlated scalar subquery
+	 * over the EAV table — the same shape the WHERE uses — so `ORDER BY age` costs one subquery per row and the
+	 * paging happens before any object exists. The caller is told by `-cd_canPushDownOrderingForRequest:` and must
+	 * not page again. */
+	if ([self cd_canPushDownOrderingForRequest:request]) {
+		NSArray *descriptors = [request sortDescriptors];
+		NSUInteger d;
+
+		for (d = 0; d < [descriptors count]; d++) {
+			NSSortDescriptor *descriptor = [descriptors objectAtIndex:d];
+			NSAttributeDescription *attribute =
+			    [[[request entity] attributesByName] objectForKey:[descriptor key]];
+
+			[tail appendFormat:@"%@(SELECT v.%@ FROM agora_value v WHERE v.entity_id = o.entity_id"
+			                    " AND v.object_key = o.object_key AND v.name = '%@' AND v.type = '%@') %@",
+			                    (d == 0) ? @" ORDER BY " : @", ",
+			                    CDSQLiteColumnForAttribute(attribute), [descriptor key],
+			                    CDSQLiteTypeNameForAttribute(attribute),
+			                    [descriptor ascending] ? @"ASC" : @"DESC"];
+		}
+		if ([request fetchLimit] > 0 || [request fetchOffset] > 0) {
+			[tail appendString:@" LIMIT ? OFFSET ?"];
+		}
+	}
+
+	{
+		NSMutableArray *extra = [[NSMutableArray alloc] init];
+
+		if ([self cd_canPushDownOrderingForRequest:request] &&
+		    ([request fetchLimit] > 0 || [request fetchOffset] > 0)) {
+			[extra addObject:[NSNumber numberWithInteger:
+			                  ([request fetchLimit] > 0) ? (NSInteger)[request fetchLimit] : (NSInteger)-1]];
+			[extra addObject:[NSNumber numberWithInteger:(NSInteger)[request fetchOffset]]];
+		}
+		statement = [self cd_prepareForRequest:request select:@"o.object_key, e.name"
+		                                  tail:tail extraBinds:extra error:error];
+		[extra release];
+	}
+	[tail release];
 	if (statement == NULL) {
 		return nil;
 	}

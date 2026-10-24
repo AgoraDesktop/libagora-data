@@ -92,6 +92,10 @@ NSArray *CDFetchCandidates(NSAtomicStore *store, NSManagedObjectContext *context
 	 * nothing. `-cd_objectIDs` answers the cheap half — which rows exist — and the values are read only for the rows
 	 * the predicate actually touches. */
 	nodes = [store cd_objectIDs];
+	/* **THE SCAN READS ITS CANDIDATES IN CHUNKS** (§0.19). Without this a lazy store ran one SELECT per row — the
+	 * price of not reading the file at open, paid again for every scan. The store decides the chunk size; the engine
+	 * only says which rows it is about to look at. */
+	[store cd_prefetchNodesForObjectIDs:nodes];
 	for (i = 0; i < [nodes count]; i++) {
 		NSManagedObjectID *objectID = [nodes objectAtIndex:i];
 
@@ -136,12 +140,14 @@ NSArray *CDFetchPendingCandidates(NSManagedObjectContext *context, NSFetchReques
 	return [matched autorelease];
 }
 
-id CDFetchShape(NSArray *candidates, NSFetchRequest *request, NSEntityDescription *entity)
+/* `ordered` MEANS SQL ALREADY DID THE ORDERING AND THE PAGING, so repeating them would sort a page and then take a
+ * slice of the slice — the classic double-paging bug. §8.1's stages still apply, minus the two SQL performed. */
+static id CDFetchShaped(NSArray *candidates, NSFetchRequest *request, NSEntityDescription *entity, BOOL ordered)
 {
 	NSMutableArray *matched = [candidates mutableCopy];
 	NSUInteger i;
 
-	if ([[request sortDescriptors] count] > 0) {
+	if (!ordered && [[request sortDescriptors] count] > 0) {
 		NSArray *sorted = [matched sortedArrayUsingDescriptors:[request sortDescriptors]];
 		[matched release];
 		matched = [sorted mutableCopy];
@@ -149,7 +155,7 @@ id CDFetchShape(NSArray *candidates, NSFetchRequest *request, NSEntityDescriptio
 
 	/* OFFSET THEN LIMIT, in that order: paging reads "skip n, take m", and doing it the other way takes the first m
 	 * of the whole set and then skips inside it. With several stores this is the only place either applies. */
-	if ([request fetchOffset] > 0) {
+	if (!ordered && [request fetchOffset] > 0) {
 		NSUInteger offset = [request fetchOffset];
 
 		if (offset >= [matched count]) {
@@ -158,7 +164,7 @@ id CDFetchShape(NSArray *candidates, NSFetchRequest *request, NSEntityDescriptio
 			[matched removeObjectsInRange:NSMakeRange(0, offset)];
 		}
 	}
-	if ([request fetchLimit] > 0 && [matched count] > [request fetchLimit]) {
+	if (!ordered && [request fetchLimit] > 0 && [matched count] > [request fetchLimit]) {
 		[matched removeObjectsInRange:NSMakeRange([request fetchLimit], [matched count] - [request fetchLimit])];
 	}
 
@@ -213,6 +219,16 @@ id CDFetchShape(NSArray *candidates, NSFetchRequest *request, NSEntityDescriptio
 		[matched release];
 		return result;
 	}
+}
+
+id CDFetchShape(NSArray *candidates, NSFetchRequest *request, NSEntityDescription *entity)
+{
+	return CDFetchShaped(candidates, request, entity, NO);
+}
+
+id CDFetchShapeAfterSQL(NSArray *candidates, NSFetchRequest *request, NSEntityDescription *entity)
+{
+	return CDFetchShaped(candidates, request, entity, YES);
 }
 
 NSArray *CDFetchExecute(NSAtomicStore *store, NSManagedObjectContext *context,

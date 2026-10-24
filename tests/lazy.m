@@ -97,6 +97,10 @@ int main(void)
 		printf("  open a %d-row file:   %6.3fs\n", ROWS, Now() - started);
 		CHECK(store != nil, "the store opens");
 		CHECK([[store cacheNodes] count] == 0, "and has read NO rows: the load is lazy now");
+		if ([[store cd_objectIDs] count] != ROWS) {
+			fprintf(stderr, "    cd_objectIDs saw %lu rows, expected %d\n",
+			        (unsigned long)[[store cd_objectIDs] count], ROWS);
+		}
 		CHECK([[store cd_objectIDs] count] == ROWS, "but it knows which rows exist");
 
 		[reading setPersistentStoreCoordinator:reader];
@@ -129,6 +133,36 @@ int main(void)
 			CHECK([found count] == 1, "a faulted fetch returns one object");
 			CHECK([[[found objectAtIndex:0] valueForKey:@"age"] intValue] >= 0, "and reading it fires one row-select");
 			[request release];
+		}
+
+		/* THE BATCHED SCAN (§0.19): an untranslatable predicate forces the scan, which must read its candidates in
+		 * CHUNKS. Correctness first — the count must match a filter done here — and the time is recorded. */
+		{
+			NSFetchRequest *request = [[NSFetchRequest alloc] init];
+			NSFetchRequest *all = [[NSFetchRequest alloc] init];
+			NSArray *scanned;
+			NSArray *everyone;
+			NSUInteger expected = 0, k;
+
+			[request setEntity:personEntity];
+			[request setPredicate:[NSPredicate predicateWithFormat:
+			                       @"FUNCTION(name, \"uppercaseString\") BEGINSWITH \"PERSON-4\""]];
+			[all setEntity:personEntity];
+			[all setReturnsObjectsAsFaults:NO];
+			everyone = [reading executeFetchRequest:all error:&error];
+			for (k = 0; k < [everyone count]; k++) {
+				NSManagedObject *person = [everyone objectAtIndex:k];
+
+				if ([[[person valueForKey:@"name"] uppercaseString] hasPrefix:@"PERSON-4"]) {
+					expected++;
+				}
+			}
+			started = Now();
+			scanned = [reading executeFetchRequest:request error:&error];
+			printf("  batched scan of %d:  %6.3fs\n", ROWS, Now() - started);
+			CHECK([scanned count] == expected, "the batched scan agrees with a filter done here");
+			[request release];
+			[all release];
 		}
 
 		/* THE REGRESSION: change one object, save, and every other row must survive */

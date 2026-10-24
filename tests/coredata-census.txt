@@ -11,11 +11,9 @@
 #
 # W1..W6: the declared surface, complete at 21 of 21 classes and 331 of 331 selectors.
 # W7: store types. W7b: relationships. W7c: routing. W7d: scale. W7e: merge sort + NSNotEqualTo's recursion.
-# W7f: .momd/.mom/.cdm readers. W7g: SQL for the count. W7h: SQL for the fetch.
-# W7i (§0.18): THE EAGER-LOAD LIMIT — the SQLite store reads no values at open, reads one row per fault, and
-#     saves incrementally. methods-declared rose with the lazy doors; the manifest selectors are unchanged, as
-#     they have been for every wave since W6: the census counts doors, and this wave changed what happens behind
-#     doors it already counted.
+# W7f: .momd/.mom/.cdm readers. W7g: SQL for the count. W7h: SQL for the fetch. W7i: the lazy store.
+# W7j (§0.19): the batched scan and ORDER BY/LIMIT in SQL. methods-declared rose with the prefetch and ordering
+#     doors; the manifest selectors are unchanged, as they have been for every wave since W6.
 
 classes-missing 0
 classes-offered 21
@@ -26,7 +24,7 @@ functions-defined-not-declared 0
 functions-missing 0
 functions-offered 0
 functions-present 0
-methods-declared 371
+methods-declared 373
 methods-declared-not-implemented 0
 protocols-missing 0
 protocols-offered 0

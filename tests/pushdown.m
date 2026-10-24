@@ -206,6 +206,65 @@ int main(void)
 			}
 		}
 
+		/* 2c. ORDER BY AND LIMIT IN SQL (§0.19), held to the same kind of reference: fetch everything, sort it here
+		 * with the SAME descriptor, slice it, and compare. Paging a page is the bug this exists to catch. */
+		{
+			NSMutableArray *descriptors = [NSMutableArray array];
+
+			[descriptors addObject:[NSSortDescriptor sortDescriptorWithKey:@"age" ascending:YES]];
+			[descriptors addObject:[NSSortDescriptor sortDescriptorWithKey:@"name" ascending:NO]];
+			{
+				NSArray *variants = [NSArray arrayWithObjects:
+				                     [NSArray arrayWithObjects:[NSNumber numberWithInt:10],
+				                                               [NSNumber numberWithInt:5], nil],
+				                     [NSArray arrayWithObjects:[NSNumber numberWithInt:1],
+				                                               [NSNumber numberWithInt:0], nil],
+				                     [NSArray arrayWithObjects:[NSNumber numberWithInt:0],
+				                                               [NSNumber numberWithInt:4200], nil],
+				                     nil];
+				NSFetchRequest *allRequest = [[NSFetchRequest alloc] init];
+				NSArray *all;
+				NSUInteger v;
+
+				[allRequest setEntity:personEntity];
+				[allRequest setReturnsObjectsAsFaults:NO];
+				all = [reading executeFetchRequest:allRequest error:NULL];
+				{
+					NSArray *sorted = [all sortedArrayUsingDescriptors:descriptors];
+
+					for (v = 0; v < [variants count]; v++) {
+						NSNumber *limit = [[variants objectAtIndex:v] objectAtIndex:0];
+						NSNumber *offset = [[variants objectAtIndex:v] objectAtIndex:1];
+						NSFetchRequest *request = [[NSFetchRequest alloc] init];
+						NSArray *page;
+						NSUInteger lo = [offset unsignedIntegerValue];
+						NSUInteger hi = [limit unsignedIntegerValue] > 0
+						    ? lo + [limit unsignedIntegerValue] : [sorted count];
+						BOOL same = YES;
+						NSUInteger k;
+
+						[request setEntity:personEntity];
+						[request setSortDescriptors:descriptors];
+						[request setFetchLimit:[limit unsignedIntegerValue]];
+						[request setFetchOffset:lo];
+						[request setReturnsObjectsAsFaults:NO];
+						page = [reading executeFetchRequest:request error:NULL];
+						if (hi > [sorted count]) { hi = [sorted count]; }
+						if ([page count] != (hi - lo)) { same = NO; }
+						for (k = 0; same && k < [page count]; k++) {
+							if ([[page objectAtIndex:k] objectID] !=
+							    [[sorted objectAtIndex:lo + k] objectID]) {
+								same = NO;
+							}
+						}
+						CHECK(same == YES, "an ordered, paged fetch matches the slice of the whole");
+						[request release];
+					}
+				}
+				[allRequest release];
+			}
+		}
+
 		/* 3. THE REASON IT EXISTS: a count through SQL against a count through a scan */
 		{
 			NSFetchRequest *request = [[NSFetchRequest alloc] init];
