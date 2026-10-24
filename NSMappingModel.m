@@ -30,6 +30,7 @@
 #import <Foundation/NSKeyedArchiver.h>
 #import <Foundation/NSError.h>
 #import <Foundation/NSException.h>
+#import <CoreData/CDModelPrivate.h>
 #import <Foundation/NSBundle.h>
 #import <Foundation/NSURL.h>
 
@@ -61,8 +62,15 @@ static NSError *CDMappingError(NSInteger code, NSString *why)
 	}
 	decoded = [NSKeyedUnarchiver unarchiveObjectWithData:data];
 	if (![decoded isKindOfClass:[NSMappingModel class]]) {
+		/* THE SAME NAMED REFUSAL FOR `.cdm` (§0.20). */
+		(void)CDRefuse(@"Apple's compiled mapping model format (momc)",
+		               [NSString stringWithFormat:
+		                @"%@ is not a mapping model this library archived; Apple's .cdm has the same undocumented "
+		                @"encoder keys as .mom (COREDATA-PLAN.md section 0.20)", url],
+		               NSMigrationMissingMappingModelError);
 		[NSException raise:NSInvalidArgumentException
-		            format:@"NSMappingModel: %@ is not an archived mapping model", url];
+		            format:@"NSMappingModel: %@ is not an archived mapping model; Apple's compiled .cdm is refused by "
+		                   @"name (COREDATA-PLAN.md section 0.20)", url];
 	}
 	[self release];
 	return [decoded retain];

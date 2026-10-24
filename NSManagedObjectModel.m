@@ -131,9 +131,20 @@ static NSError *CDModelError(NSInteger code, NSString *why)
 		}
 		decoded = [NSKeyedUnarchiver unarchiveObjectWithData:data];
 		if (![decoded isKindOfClass:[NSManagedObjectModel class]]) {
+			/* **A NAMED REFUSAL, NOT A COMPATIBILITY CLAIM** (§0.20). A file that is a keyed archive and is not this
+			 * library's model is, in practice, `momc`'s — Apple's compiled format. It is REFUSED: the class names
+			 * could be mapped (`+setClass:forClassName:` exists) but Apple's ENCODER KEYS are undocumented and no
+			 * compiled Core Data model exists on this machine to measure them against (§0.14). Saying "not an
+			 * archived model" would leave a caller guessing between a corrupt file and a format this tree does not
+			 * read. */
 			if (error != NULL) {
-				*error = CDModelError(NSMigrationMissingSourceModelError,
-				                      [NSString stringWithFormat:@"%@ is not an archived model", path]);
+				*error = CDRefuse(@"Apple's compiled model format (momc)", 
+				    [NSString stringWithFormat:
+				     @"%@ is not a model this library archived. Apple's .mom is a keyed archive whose CLASS NAMES could "
+				     @"be mapped but whose ENCODER KEYS are undocumented, and no compiled Core Data model exists on this "
+				     @"machine to measure them against: archive a model with NSKeyedArchiver instead "
+				     @"(COREDATA-PLAN.md section 0.20)", path],
+				    NSMigrationMissingSourceModelError);
 			}
 			return nil;
 		}

@@ -147,6 +147,27 @@ int main(void)
 		      "an empty .momd raises rather than answering an empty model");
 	}
 
+	/* 4b. APPLE'S COMPILED FORMAT IS REFUSED BY NAME (§0.20): a keyed archive that is not this library's model gets
+	 * a message naming `momc`, not "not an archived model" — a caller must be able to tell a corrupt file from a
+	 * format this tree does not read. */
+	{
+		NSString *foreign = @"/tmp/libagora-data-foreign.mom";
+		NSData *archive = [NSKeyedArchiver archivedDataWithRootObject:[NSArray arrayWithObject:@"not a model"]];
+		NSError *why = nil;
+
+		[archive writeToFile:foreign atomically:YES];
+		{
+			NSManagedObjectModel *model = [NSManagedObjectModel cd_modelWithContentsOfURL:
+			                               [NSURL fileURLWithPath:foreign] error:&why];
+
+			CHECK(model == nil, "a keyed archive that is not a model is refused");
+			CHECK([[why userInfo] objectForKey:@"reason"] != nil, "with a reason");
+			CHECK([[[[why userInfo] objectForKey:@"reason"] description]
+			       rangeOfString:@"Apple's .mom"].location != NSNotFound,
+			      "that names Apple's compiled format");
+		}
+	}
+
 	/* 5. the mapping model, through the same bundle */
 	{
 		NSMappingModel *mapping = [NSMappingModel inferredMappingModelForSourceModel:v1

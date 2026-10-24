@@ -13,6 +13,14 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSData.h>
 #include <openssl/sha.h>
+#include <stdio.h>
+
+NSError *CDRefuse(NSString *name, NSString *reason, NSInteger code)
+{
+	fprintf(stderr, "COREDATA-REFUSE %s: %s\n", [name UTF8String], [reason UTF8String]);
+	return [NSError errorWithDomain:@"NSCocoaErrorDomain" code:code
+	                      userInfo:[NSDictionary dictionaryWithObject:reason forKey:@"reason"]];
+}
 
 NSData *CDVersionHashOfCanonicalString(NSString *canonical)
 {

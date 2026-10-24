@@ -27,6 +27,11 @@
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSAtomicStore.h>
 
+/* A REFUSAL BY NAME (§4.3, §0.20): logs one `COREDATA-REFUSE` line naming the door and the reason, and returns the
+ * NSError that carries the same reason. Every refusal in this component goes through here, so a census can count
+ * them and a reader can see them in a log without a debugger. */
+NSError *CDRefuse(NSString *name, NSString *reason, NSInteger code);
+
 /* SHA-256 of the UTF-8 bytes of `canonical`, as 32 bytes. */
 NSData *CDVersionHashOfCanonicalString(NSString *canonical);
 
