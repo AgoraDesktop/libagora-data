@@ -39,7 +39,7 @@ if(NOT CMAKE_OBJC_COMPILER_ID MATCHES "Clang")
     "Configure with: -DCMAKE_C_COMPILER=clang -DCMAKE_OBJC_COMPILER=clang")
 endif()
 
-enable_testing()
+include(CTest)	# defines BUILD_TESTING (ON by default) and enables testing with it
 
 include(GNUInstallDirs)
 
@@ -129,4 +129,8 @@ install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/AgoraDataConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AgoraData)
 
-add_subdirectory(tests)
+# **THE TESTS ARE A DEVELOPMENT ARTEFACT, AND A RELEASE DOES NOT BUILD THEM**: `-DBUILD_TESTING=OFF`, which
+# is what the release driver passes, must configure and compile no test executable at all.
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
